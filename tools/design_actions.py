@@ -496,8 +496,8 @@ def act_headphones():
 # MARK: Laptop
 
 # Clawd's own laptop, side on in front of it and as plain as the Code tab
-# draws its one: a gray base with dark dots for keys, the lid leaning back
-# from the far end, and a few cream dots of light off its screen.
+# draws its one: a gray base with dark dots for keys, the lid standing up at
+# the far end, and a few cream dots of light off its screen.
 LAPTOP_X = 8.5   # where the base starts, just in front of the claw
 
 
@@ -508,9 +508,8 @@ def laptop(f, open_=4.0, y=0.0, lit=True, flicker=0, tap=None, poof=False):
     base = rect_cells(x, y, 6, 1.0)
     lid = set()
     if open_ > 0:
-        # Leaning back a pixel every 1.5 units as it rises from the hinge.
-        for k in range(round(open_ * 2)):
-            lid.add((x + 5.5 + (k // 3) * 0.5, y + 1.0 + k * 0.5))
+        # Standing up square from the far end, flat along its top.
+        lid = rect_cells(x + 5, y + 1.0, 1, open_)
     else:
         base |= rect_cells(x, y + 1.0, 6, 0.5)
     if poof:
@@ -525,7 +524,7 @@ def laptop(f, open_=4.0, y=0.0, lit=True, flicker=0, tap=None, poof=False):
             dot(f, *key, CREAM if tap == key else GRAY_DARK)
     if lit and open_ >= 3.0:
         # The screen's light, a few dots off the lid that change as it scrolls.
-        for k, (lx, ly) in enumerate(sorted(lid)):
+        for k, (lx, ly) in enumerate(sorted(c for c in lid if c[0] == x + 5)):
             if (k + flicker) % 2 == 0:
                 dot(f, lx - 0.5, ly, CREAM)
 
