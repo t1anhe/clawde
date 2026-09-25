@@ -1,0 +1,5 @@
+build/
+private/
+__pycache__/
+.DS_Store
+assets/actions/

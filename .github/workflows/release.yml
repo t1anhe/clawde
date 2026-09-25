@@ -1,0 +1,36 @@
+# Builds Clawde.app for Apple silicon and Intel on every push, and on a tag
+# like v1.0.0 attaches it, zipped, to a GitHub release of that version.
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          [[ "$GITHUB_REF_TYPE" == tag ]] || VERSION=0.0.0
+          VERSION="$VERSION" ./build.sh
+          ditto -c -k --keepParent build/Clawde.app Clawde.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Clawde
+          path: Clawde.zip
+
+      - name: Release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" Clawde.zip --title "Clawde $GITHUB_REF_NAME" --generate-notes
