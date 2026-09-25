@@ -402,16 +402,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func claudeEvent(_ event: ClaudeWatcher.Event) {
         guard followsClaude, demo == nil else { return }
         switch event {
-        case .started:
-            break
+        case .started(let session):
+            log("started: \(session.project) · \(session.title)")
         case .needsYou(let session):
+            log("needs you: \(session.project) · \(session.title): \(session.need.map { "\($0)" } ?? "?")")
             var wait = 0.0
             if case .permission = session.need { wait = 8 }
             remind(session, after: wait)
             remind(session, after: wait + 180, again: true)
-        case .finished(let session, _):
-            chat.say("\(session.project) · \(session.title) is done!", linger: 6)
+        case .finished(let session, let said):
+            log("finished: \(session.project) · \(session.title)\(session.interrupted ? " (interrupted)" : said == nil ? "" : " (with its last words)")")
+            if !session.interrupted { say("\(session.project) · \(session.title) is done!", linger: 6) }
         }
+    }
+
+    /// A line in Clawd's chat bubble, and in the log with CLAWD_DEBUG set.
+    private func say(_ line: String, linger: Double) {
+        log("says: \(line)")
+        chat.say(line, linger: linger)
+    }
+
+    private static let debug = ProcessInfo.processInfo.environment["CLAWD_DEBUG"] != nil
+
+    private func log(_ text: String) {
+        guard Self.debug else { return }
+        let time = String(format: "%.1f", Date().timeIntervalSince1970.truncatingRemainder(dividingBy: 1000))
+        FileHandle.standardError.write(Data("[claude \(time)] \(text)\n".utf8))
     }
 
     /// Says what a session needs, if it still needs it after `delay` seconds.
@@ -429,7 +445,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             case .plan: line = "\(name) has a plan for you to look over."
             }
             if again { line = "Still waiting on you: " + line }
-            self.chat.say(line, linger: 8)
+            self.say(line, linger: 8)
             self.pet.perk()
         }
     }

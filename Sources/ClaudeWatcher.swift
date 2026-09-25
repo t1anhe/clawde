@@ -37,6 +37,8 @@ final class ClaudeWatcher {
         var state: ClaudeState
         /// What it's waiting on you for, while `state` is `.waiting`.
         var need: Need?
+        /// Its last turn ended with you interrupting it.
+        var interrupted = false
         var mode = WorkMode.typing
         /// Its `git commit`s and `git push`es that went through, by tool call.
         var shipped: [String] = []
@@ -77,6 +79,8 @@ final class ClaudeWatcher {
         var results: Set<String> = []
         /// What a pending AskUserQuestion asks, or "" for a plan to approve.
         var asking: String?
+        /// The last turn ended with the person interrupting it.
+        var interrupted = false
         /// The tools this turn has called, newest first, the last few.
         var tools: [String] = []
         var shipped: [String] = []
@@ -89,7 +93,7 @@ final class ClaudeWatcher {
     var onShip: (@MainActor () -> Void)?
 
     /// What happens to one session: it starts on something, it needs you,
-    /// or it finishes, with the last thing it said.
+    /// or it finishes, with the last thing it said (or it's interrupted).
     enum Event {
         case started(Session)
         case needsYou(Session)
@@ -205,13 +209,25 @@ final class ClaudeWatcher {
             if session.state != .idle, (before?.state ?? .idle) == .idle { events.append(.started(session)) }
             if let need = session.need, need != before?.need { events.append(.needsYou(session)) }
         }
+        var kept: [String: Session] = [:]
         if looked {
             for (id, before) in previous where before.state != .idle && (current[id]?.state ?? .idle) == .idle {
+                // For a session the hooks have heard from, a turn is over when
+                // they say it stopped or ended, or it's gone quiet for good; the
+                // transcript alone can look finished for a moment mid-turn.
+                let stopped = current[id]?.interrupted == true || notes[id].map { noted in
+                    noted.stopped.map { $0.at >= (noted.turnAt ?? .distantPast) } ?? false
+                } ?? false
+                if hooked, notes[id] != nil, !stopped, current[id] != nil {
+                    kept[id] = before
+                    continue
+                }
                 let session = current[id] ?? before
-                events.append(.finished(session, said: notes[id]?.stopped?.said ?? session.reply))
+                let said = session.interrupted ? nil : notes[id]?.stopped?.said ?? session.reply
+                events.append(.finished(session, said: said))
             }
         }
-        previous = current
+        previous = current.merging(kept) { _, before in before }
         looked = true
         return events
     }
@@ -224,6 +240,11 @@ final class ClaudeWatcher {
         var turnAt: Date?
         var stopped: (at: Date, said: String?)?
         var need: (need: Need, at: Date, call: String?)?
+        /// Where it runs, what it was last asked, and when a hook last said anything:
+        /// enough to know a session whose transcript isn't written yet.
+        var cwd: String?
+        var prompt: String?
+        var lastAt: Date?
     }
 
     /// Reads what the hooks have written since the last look; the first
@@ -254,11 +275,14 @@ final class ClaudeWatcher {
     /// Takes note of one hook's input.
     static func note(_ hook: [String: Any], at: Date, in notes: inout Notes) {
         let call = hook["tool_use_id"] as? String
+        notes.lastAt = at
+        if let cwd = hook["cwd"] as? String { notes.cwd = cwd }
         switch hook["hook_event_name"] as? String {
         case "UserPromptSubmit":
             notes.turnAt = at
             notes.need = nil
             notes.stopped = nil
+            if let prompt = hook["prompt"] as? String, !prompt.isEmpty { notes.prompt = clip(prompt, 120) }
         case "PreToolUse":
             if hook["tool_name"] as? String == "ExitPlanMode" {
                 notes.need = (.plan, at, call)
@@ -266,7 +290,12 @@ final class ClaudeWatcher {
                 notes.need = (.question(question(in: hook["tool_input"]) ?? ""), at, call)
             }
         case "PermissionRequest":
-            notes.need = (.permission(summary(of: hook["tool_name"] as? String, input: hook["tool_input"])), at, call)
+            // Asking you and showing you a plan go through permissions too.
+            switch hook["tool_name"] as? String {
+            case "AskUserQuestion": notes.need = (.question(question(in: hook["tool_input"]) ?? ""), at, call)
+            case "ExitPlanMode": notes.need = (.plan, at, call)
+            default: notes.need = (.permission(summary(of: hook["tool_name"] as? String, input: hook["tool_input"])), at, call)
+            }
         case "Notification":
             let message = clip(hook["message"] as? String ?? "", 80)
             switch hook["notification_type"] as? String {
@@ -346,11 +375,16 @@ final class ClaudeWatcher {
                 } else if let read = read(file) {
                     tail = read
                     tails[path] = (modified, read)
+                } else if let kept = tails[path] {
+                    // Mid-write or unreadable just now: what it said last still goes.
+                    tail = kept.tail
                 } else {
                     continue
                 }
                 let id = file.deletingPathExtension().lastPathComponent
-                var state = state(of: tail.last, now: now, guessing: !hooked)
+                // A session the hooks tell of asks for permissions through them;
+                // only for others is a permission guessed from a quiet tool call.
+                var state = state(of: tail.last, now: now, guessing: !(hooked && notes[id] != nil))
                 // What it's stopped for: as the hooks tell it, or as its transcript shows.
                 var need: Need?
                 if let noted = notes[id]?.need, !resolved(noted, notes: notes[id]!, tail: tail) {
@@ -364,11 +398,23 @@ final class ClaudeWatcher {
                 guard now.timeIntervalSince(modified) < lifetime(of: tail.last, in: state) else { continue }
                 let title = tail.title ?? tail.prompt.map { clip($0, 30) } ?? tail.project
                 found.append(Session(id: id, project: tail.project, title: title, state: state, need: need,
-                                     mode: mode(of: tail.tools), shipped: tail.shipped, prompt: tail.prompt,
-                                     reply: tail.reply, updated: modified))
+                                     interrupted: tail.interrupted, mode: mode(of: tail.tools), shipped: tail.shipped,
+                                     prompt: tail.prompt, reply: tail.reply, updated: modified))
             }
         }
         tails = tails.filter { seen.contains($0.key) }
+        // A session mid-turn that the hooks know of but whose transcript isn't
+        // written yet: a new one writes nothing while it waits on your say-so.
+        let known = Set(found.map(\.id))
+        for (id, noted) in notes where !known.contains(id) {
+            guard let turnAt = noted.turnAt, (noted.stopped?.at ?? .distantPast) < turnAt,
+                  let lastAt = noted.lastAt, now.timeIntervalSince(lastAt) < runningStaleAfter
+            else { continue }
+            let project = noted.cwd.map { ($0 as NSString).lastPathComponent } ?? "Claude Code"
+            found.append(Session(id: id, project: project, title: noted.prompt.map { clip($0, 30) } ?? project,
+                                 state: noted.need == nil ? .working : .waiting, need: noted.need?.need,
+                                 prompt: noted.prompt, updated: lastAt))
+        }
         return found.sorted { $0.updated > $1.updated }
     }
 
@@ -417,13 +463,24 @@ final class ClaudeWatcher {
     /// Reads a transcript's tail, newest entry first, for its newest turn
     /// entry, the project it's in and the last things said.
     static func read(_ file: URL) -> Tail? {
-        guard let handle = try? FileHandle(forReadingFrom: file) else { return nil }
-        defer { try? handle.close() }
-        guard let size = try? handle.seekToEnd() else { return nil }
-        try? handle.seek(toOffset: size > tailBytes ? size - tailBytes : 0)
-        guard let data = try? handle.readToEnd() else { return nil }
+        // A tool's result can be one line longer than the usual tail (an
+        // image, a big file): then more is read, up to 32 MB.
+        for window in [tailBytes, 4 << 20, 32 << 20] as [UInt64] {
+            guard let handle = try? FileHandle(forReadingFrom: file) else { return nil }
+            defer { try? handle.close() }
+            guard let size = try? handle.seekToEnd() else { return nil }
+            try? handle.seek(toOffset: size > window ? size - window : 0)
+            guard let data = try? handle.readToEnd() else { return nil }
+            if let tail = read(data, of: file) { return tail }
+            if size <= window { return nil }
+        }
+        return nil
+    }
 
+    /// Reads a transcript's tail from its last `data`, newest entry first.
+    private static func read(_ data: Data, of file: URL) -> Tail? {
         var last: Tail.Last?
+        var wasInterrupted = false
         var title: String?
         var results = Set<String>()
         var asking: String?
@@ -478,6 +535,7 @@ final class ClaudeWatcher {
                 if last == nil {
                     if interrupted || text.hasPrefix("<command-") || text.hasPrefix("<local-command") {
                         last = .finished
+                        wasInterrupted = interrupted
                     } else {
                         last = isResult ? .result(at: Self.date(of: entry)) : .asked
                     }
@@ -499,6 +557,7 @@ final class ClaudeWatcher {
             reply: reply.map { clip($0, 160) },
             results: results,
             asking: asking,
+            interrupted: wasInterrupted,
             tools: Array(tools.prefix(6)),
             shipped: shipped
         )
