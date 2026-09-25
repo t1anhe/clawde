@@ -17,10 +17,26 @@ enum WorkMode: Equatable {
 /// written by the CLI and the desktop app alike) and reports whether any
 /// session is mid-turn or waiting on you, and what the recent ones are about.
 final class ClaudeWatcher {
+    /// What a session is stopped for until you step in.
+    enum Need: Equatable {
+        /// Your permission to use a tool, e.g. "Bash: git push".
+        case permission(String)
+        /// An answer to its question.
+        case question(String)
+        /// Your go-ahead on its plan.
+        case plan
+    }
+
     /// A session still going or touched in the last few minutes, as Clawd tells it.
     struct Session: Equatable {
+        /// Its transcript's name: Claude Code's session ID.
+        var id: String
         var project: String
+        /// What it's called: its title, or else what it was last asked, cut short.
+        var title: String
         var state: ClaudeState
+        /// What it's waiting on you for, while `state` is `.waiting`.
+        var need: Need?
         var mode = WorkMode.typing
         /// Its `git commit`s and `git push`es that went through, by tool call.
         var shipped: [String] = []
@@ -52,9 +68,15 @@ final class ClaudeWatcher {
 
         var last: Last
         var project: String
+        /// The session's title, if it has one.
+        var title: String?
         /// What the person last asked, and what Claude last said, cut short.
         var prompt: String?
         var reply: String?
+        /// The tool calls whose results have come back.
+        var results: Set<String> = []
+        /// What a pending AskUserQuestion asks, or "" for a plan to approve.
+        var asking: String?
         /// The tools this turn has called, newest first, the last few.
         var tools: [String] = []
         var shipped: [String] = []
@@ -65,6 +87,17 @@ final class ClaudeWatcher {
     /// Called on the main actor when a `git commit` or `git push` of Claude's
     /// goes through.
     var onShip: (@MainActor () -> Void)?
+
+    /// What happens to one session: it starts on something, it needs you,
+    /// or it finishes, with the last thing it said.
+    enum Event {
+        case started(Session)
+        case needsYou(Session)
+        case finished(Session, said: String?)
+    }
+
+    /// Called on the main actor for each session that starts, needs you or finishes.
+    var onEvent: (@MainActor (Event) -> Void)?
     /// The recent sessions, newest first; read on the main actor.
     @MainActor private(set) var sessions: [Session] = []
 
@@ -105,6 +138,15 @@ final class ClaudeWatcher {
     /// The commits and pushes already told of; nil until the first look,
     /// which only takes note of what's there.
     private var shipsSeen: Set<String>?
+    /// What the hooks last said about each session, by session ID.
+    private var notes: [String: Notes] = [:]
+    /// How far into the hooks' events file has been read; nil before the first look.
+    private var eventsRead: UInt64?
+    /// Each session as last seen, to tell what changed.
+    private var previous: [String: Session] = [:]
+    /// Whether the sessions have been looked at yet: those already going at
+    /// launch are told of as starting, but none as finishing.
+    private var looked = false
 
     func start() {
         let timer = DispatchSource.makeTimerSource(queue: queue)
@@ -116,7 +158,10 @@ final class ClaudeWatcher {
 
     private func poll() {
         let now = Date()
-        let sessions = Self.recentSessions(under: root, now: now, tails: &tails)
+        readHookEvents()
+        if checks % 30 == 0 { hooked = Hooks.isInstalled }
+        checks += 1
+        let sessions = Self.recentSessions(under: root, now: now, tails: &tails, notes: notes, hooked: hooked)
         // A session waiting on you matters most, then one working, then one thinking.
         let states = Set(sessions.map(\.state))
         let state = [ClaudeState.waiting, .working, .thinking].first { states.contains($0) } ?? .idle
@@ -136,12 +181,141 @@ final class ClaudeWatcher {
         let ships = Set(sessions.flatMap(\.shipped))
         let shipped = shipsSeen.map { !ships.subtracting($0).isEmpty } ?? false
         shipsSeen = (shipsSeen ?? []).union(ships)
-        let onChange = onChange, onShip = onShip, mode = self.mode
+        let events = changes(to: sessions)
+        let onChange = onChange, onShip = onShip, onEvent = onEvent, mode = self.mode
         Task { @MainActor [weak self] in
             self?.sessions = sessions
             if changed { onChange?(state, mode) }
             if shipped { onShip?() }
+            for event in events { onEvent?(event) }
         }
+    }
+
+    /// Whether Clawde's hooks are in Claude Code's settings, looked at every
+    /// half minute; and how many looks there have been.
+    private var hooked = false
+    private var checks = 0
+
+    /// What's happened to each session since the last look.
+    private func changes(to sessions: [Session]) -> [Event] {
+        var events: [Event] = []
+        let current = Dictionary(sessions.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        for session in sessions {
+            let before = previous[session.id]
+            if session.state != .idle, (before?.state ?? .idle) == .idle { events.append(.started(session)) }
+            if let need = session.need, need != before?.need { events.append(.needsYou(session)) }
+        }
+        if looked {
+            for (id, before) in previous where before.state != .idle && (current[id]?.state ?? .idle) == .idle {
+                let session = current[id] ?? before
+                events.append(.finished(session, said: notes[id]?.stopped?.said ?? session.reply))
+            }
+        }
+        previous = current
+        looked = true
+        return events
+    }
+
+    // MARK: Hooks
+
+    /// What the hooks said lately about one session: when its last turn
+    /// began and how it ended, and what it needs of you, for which tool call.
+    struct Notes {
+        var turnAt: Date?
+        var stopped: (at: Date, said: String?)?
+        var need: (need: Need, at: Date, call: String?)?
+    }
+
+    /// Reads what the hooks have written since the last look; the first
+    /// look starts near the end.
+    private func readHookEvents() {
+        guard let handle = try? FileHandle(forUpdating: Hooks.eventsFile) else { return }
+        defer { try? handle.close() }
+        guard let size = try? handle.seekToEnd() else { return }
+        var start = eventsRead ?? (size > Self.tailBytes ? size - Self.tailBytes : 0)
+        if start > size { start = 0 }
+        try? handle.seek(toOffset: start)
+        guard let data = try? handle.readToEnd() else { return }
+        eventsRead = size
+        for line in data.split(separator: UInt8(ascii: "\n")) {
+            guard let entry = (try? JSONSerialization.jsonObject(with: Data(line))) as? [String: Any],
+                  let hook = entry["hook"] as? [String: Any], let id = hook["session_id"] as? String
+            else { continue }
+            let seconds = (entry["at"] as? NSNumber)?.doubleValue ?? Date().timeIntervalSince1970
+            Self.note(hook, at: Date(timeIntervalSince1970: seconds), in: &notes[id, default: Notes()])
+        }
+        // Grown big, it starts afresh: everything in it has been read.
+        if size > 4 << 20 {
+            try? handle.truncate(atOffset: 0)
+            eventsRead = 0
+        }
+    }
+
+    /// Takes note of one hook's input.
+    static func note(_ hook: [String: Any], at: Date, in notes: inout Notes) {
+        let call = hook["tool_use_id"] as? String
+        switch hook["hook_event_name"] as? String {
+        case "UserPromptSubmit":
+            notes.turnAt = at
+            notes.need = nil
+            notes.stopped = nil
+        case "PreToolUse":
+            if hook["tool_name"] as? String == "ExitPlanMode" {
+                notes.need = (.plan, at, call)
+            } else if hook["tool_name"] as? String == "AskUserQuestion" {
+                notes.need = (.question(question(in: hook["tool_input"]) ?? ""), at, call)
+            }
+        case "PermissionRequest":
+            notes.need = (.permission(summary(of: hook["tool_name"] as? String, input: hook["tool_input"])), at, call)
+        case "Notification":
+            let message = clip(hook["message"] as? String ?? "", 80)
+            switch hook["notification_type"] as? String {
+            case "permission_prompt":
+                if notes.need == nil { notes.need = (.permission(message), at, nil) }
+            case "elicitation_dialog", "elicitation_url_dialog", "agent_needs_input":
+                notes.need = (.question(message), at, nil)
+            default:
+                break
+            }
+        case "Stop", "StopFailure":
+            notes.need = nil
+            notes.stopped = (at, (hook["last_assistant_message"] as? String).map { clip($0, 200) })
+        case "SessionEnd":
+            notes.need = nil
+            notes.stopped = (at, nil)
+        default:
+            break
+        }
+    }
+
+    /// Whether what a session needed has been seen to: its tool call came
+    /// back, or a turn began or ended since, or the transcript's turn is over.
+    static func resolved(_ need: (need: Need, at: Date, call: String?), notes: Notes, tail: Tail) -> Bool {
+        if let call = need.call, tail.results.contains(call) { return true }
+        if let turnAt = notes.turnAt, turnAt > need.at { return true }
+        if let stopped = notes.stopped, stopped.at >= need.at { return true }
+        if case .finished = tail.last { return true }
+        return false
+    }
+
+    /// A tool call in a few words: the tool, and the command, file or page it's for.
+    static func summary(of tool: String?, input: Any?) -> String {
+        let input = input as? [String: Any] ?? [:]
+        let name = tool.map { $0.hasPrefix("mcp__") ? $0.split(separator: "_").last.map(String.init) ?? $0 : $0 } ?? "a tool"
+        if let command = input["command"] as? String {
+            return "\(name): \(clip(command.split(separator: "\n").first.map(String.init) ?? command, 60))"
+        }
+        if let path = input["file_path"] as? String ?? input["notebook_path"] as? String {
+            return "\(name): \((path as NSString).lastPathComponent)"
+        }
+        if let url = input["url"] as? String { return "\(name): \(clip(url, 60))" }
+        return name
+    }
+
+    /// The first question an AskUserQuestion call asks.
+    static func question(in input: Any?) -> String? {
+        let questions = (input as? [String: Any])?["questions"] as? [[String: Any]]
+        return (questions?.first?["question"] as? String).map { clip($0, 120) }
     }
 
     /// The kind of work last told to `onChange`.
@@ -150,8 +324,8 @@ final class ClaudeWatcher {
     /// The sessions still going or lately touched, newest first, leaving out
     /// Clawd's own conversation. `tails` keeps each transcript's reading
     /// until the file changes.
-    static func recentSessions(under root: URL, now: Date = Date(),
-                               tails: inout [String: (modified: Date, tail: Tail)]) -> [Session] {
+    static func recentSessions(under root: URL, now: Date = Date(), tails: inout [String: (modified: Date, tail: Tail)],
+                               notes: [String: Notes] = [:], hooked: Bool = false) -> [Session] {
         let fm = FileManager.default
         let projects = (try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)) ?? []
         var found: [Session] = []
@@ -175,10 +349,23 @@ final class ClaudeWatcher {
                 } else {
                     continue
                 }
-                let state = state(of: tail.last, now: now)
+                let id = file.deletingPathExtension().lastPathComponent
+                var state = state(of: tail.last, now: now, guessing: !hooked)
+                // What it's stopped for: as the hooks tell it, or as its transcript shows.
+                var need: Need?
+                if let noted = notes[id]?.need, !resolved(noted, notes: notes[id]!, tail: tail) {
+                    need = noted.need
+                } else if let asking = tail.asking {
+                    need = asking.isEmpty ? .plan : .question(asking)
+                } else if state == .waiting {
+                    need = .permission("")
+                }
+                if need != nil { state = .waiting }
                 guard now.timeIntervalSince(modified) < lifetime(of: tail.last, in: state) else { continue }
-                found.append(Session(project: tail.project, state: state, mode: mode(of: tail.tools),
-                                     shipped: tail.shipped, prompt: tail.prompt, reply: tail.reply, updated: modified))
+                let title = tail.title ?? tail.prompt.map { clip($0, 30) } ?? tail.project
+                found.append(Session(id: id, project: tail.project, title: title, state: state, need: need,
+                                     mode: mode(of: tail.tools), shipped: tail.shipped, prompt: tail.prompt,
+                                     reply: tail.reply, updated: modified))
             }
         }
         tails = tails.filter { seen.contains($0.key) }
@@ -192,7 +379,7 @@ final class ClaudeWatcher {
     /// writing or running a tool; and waiting on the person while the tool
     /// it's stopped at asks them something, or is a quick one that's had no
     /// result for a while (it needs allowing).
-    static func state(of last: Tail.Last, now: Date) -> ClaudeState {
+    static func state(of last: Tail.Last, now: Date, guessing: Bool = true) -> ClaudeState {
         switch last {
         case .finished:
             return .idle
@@ -204,7 +391,7 @@ final class ClaudeWatcher {
             return .working
         case .calling(let tools, let at):
             let quick = tools.isDisjoint(with: slowTools) && !tools.contains { $0.hasPrefix("mcp__") }
-            if !tools.isDisjoint(with: askingTools) || (quick && now.timeIntervalSince(at ?? now) > permissionAfter) {
+            if !tools.isDisjoint(with: askingTools) || (guessing && quick && now.timeIntervalSince(at ?? now) > permissionAfter) {
                 return .waiting
             }
             return .working
@@ -237,6 +424,9 @@ final class ClaudeWatcher {
         guard let data = try? handle.readToEnd() else { return nil }
 
         var last: Tail.Last?
+        var title: String?
+        var results = Set<String>()
+        var asking: String?
         var prompt: String?
         var reply: String?
         var project: String?
@@ -250,6 +440,9 @@ final class ClaudeWatcher {
             let message = entry["message"] as? [String: Any]
             if project == nil, let cwd = entry["cwd"] as? String { project = (cwd as NSString).lastPathComponent }
             switch entry["type"] as? String {
+            case "custom-title":
+                if title == nil, let named = entry["customTitle"] as? String, !named.isEmpty { title = clip(named, 40) }
+                continue
             case "assistant":
                 if last == nil {
                     let reason = message?["stop_reason"] as? String
@@ -258,6 +451,10 @@ final class ClaudeWatcher {
                         last = .finished
                     } else {
                         last = tools.isEmpty ? .wrote : .calling(tools, at: Self.date(of: entry))
+                        if tools.contains("ExitPlanMode") { asking = "" }
+                        for call in (message?["content"] as? [[String: Any]] ?? []) where call["name"] as? String == "AskUserQuestion" {
+                            asking = Self.question(in: call["input"]) ?? ""
+                        }
                     }
                 }
                 if reply == nil, let text = Self.text(of: message?["content"]), !text.isEmpty { reply = text }
@@ -273,9 +470,10 @@ final class ClaudeWatcher {
                 let text = Self.text(of: message?["content"]) ?? ""
                 let interrupted = text.hasPrefix("[Request interrupted")
                 let isResult = Self.isToolResult(message?["content"])
-                for block in message?["content"] as? [[String: Any]] ?? []
-                where block["type"] as? String == "tool_result" && block["is_error"] as? Bool != true {
-                    if let id = block["tool_use_id"] as? String { succeeded.insert(id) }
+                for block in message?["content"] as? [[String: Any]] ?? [] where block["type"] as? String == "tool_result" {
+                    guard let id = block["tool_use_id"] as? String else { continue }
+                    results.insert(id)
+                    if block["is_error"] as? Bool != true { succeeded.insert(id) }
                 }
                 if last == nil {
                     if interrupted || text.hasPrefix("<command-") || text.hasPrefix("<local-command") {
@@ -290,14 +488,17 @@ final class ClaudeWatcher {
             default:
                 continue
             }
-            if last != nil, prompt != nil, reply != nil, project != nil { break }
+            if last != nil, prompt != nil, reply != nil, project != nil, title != nil { break }
         }
         guard let last else { return nil }
         return Tail(
             last: last,
             project: project ?? file.deletingLastPathComponent().lastPathComponent,
+            title: title,
             prompt: prompt.map { clip($0, 120) },
             reply: reply.map { clip($0, 160) },
+            results: results,
+            asking: asking,
             tools: Array(tools.prefix(6)),
             shipped: shipped
         )
@@ -350,7 +551,7 @@ final class ClaudeWatcher {
         return texts.isEmpty ? nil : texts.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private static func clip(_ text: String, _ limit: Int) -> String {
+    static func clip(_ text: String, _ limit: Int) -> String {
         let flat = text.replacingOccurrences(of: "\n", with: " ")
         return flat.count > limit ? String(flat.prefix(limit)) + "…" : flat
     }

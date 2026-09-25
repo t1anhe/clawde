@@ -105,19 +105,43 @@ extension Tools {
 let arguments = CommandLine.arguments
 if arguments.count >= 2, arguments[1] == "--claude-state" {
     // What the watcher makes of the transcripts under a folder (Claude Code's
-    // own by default): each recent session, then all of them together.
+    // own by default) and the hooks' events file (Clawde's own by default):
+    // each recent session, then all of them together.
     let root = arguments.count > 2 ? URL(fileURLWithPath: arguments[2], isDirectory: true)
         : FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/projects", isDirectory: true)
+    let eventsFile = arguments.count > 3 ? URL(fileURLWithPath: arguments[3]) : Hooks.eventsFile
+    var notes: [String: ClaudeWatcher.Notes] = [:]
+    for line in (try? String(contentsOf: eventsFile, encoding: .utf8))?.split(separator: "\n") ?? [] {
+        guard let entry = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any],
+              let hook = entry["hook"] as? [String: Any], let id = hook["session_id"] as? String
+        else { continue }
+        let at = Date(timeIntervalSince1970: (entry["at"] as? NSNumber)?.doubleValue ?? 0)
+        ClaudeWatcher.note(hook, at: at, in: &notes[id, default: ClaudeWatcher.Notes()])
+    }
     var tails: [String: (modified: Date, tail: ClaudeWatcher.Tail)] = [:]
-    let sessions = ClaudeWatcher.recentSessions(under: root, tails: &tails)
+    let sessions = ClaudeWatcher.recentSessions(under: root, tails: &tails, notes: notes,
+                                                hooked: arguments.count > 3 || Hooks.isInstalled)
     for session in sessions {
         let mode = session.state == .working ? " (\(session.mode))" : ""
+        let need = session.need.map { " needing \($0)" } ?? ""
         let ships = session.shipped.isEmpty ? "" : ", shipped \(session.shipped.joined(separator: " "))"
-        print("\(session.project): \(session.state)\(mode)\(ships)")
+        print("\(session.project) · \(session.title) [\(session.id.prefix(8))]: \(session.state)\(mode)\(need)\(ships)")
     }
     let states = Set(sessions.map(\.state))
     print("=> \([ClaudeState.waiting, .working, .thinking].first { states.contains($0) } ?? .idle)")
     exit(0)
+}
+if arguments.count >= 2, arguments[1] == "--hooks" {
+    // Adds Clawde's hooks to Claude Code's settings ("on"), takes them out
+    // ("off"), or says whether they're in.
+    do {
+        if arguments.count > 2 { try arguments[2] == "off" ? Hooks.uninstall() : Hooks.install() }
+        print("Claude Code hooks: \(Hooks.isInstalled ? "on" : "off") (\(Hooks.settingsFile.path))")
+        exit(0)
+    } catch {
+        FileHandle.standardError.write(Data("\(error.localizedDescription)\n".utf8))
+        exit(1)
+    }
 }
 if arguments.count == 2, arguments[1] == "--games" {
     // Which of the apps running now Clawd would take for a game in front.

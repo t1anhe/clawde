@@ -95,8 +95,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard let self, self.followsClaude, self.demo == nil else { return }
             self.pet.shipped()
         }
+        watcher.onEvent = { [weak self] event in self?.claudeEvent(event) }
         watcher.start()
         startSensing()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in self?.offerHooks() }
         if isConnected { mind.start() }
         // Started with --demo, the run-through begins at once.
         if CommandLine.arguments.contains("--demo") {
@@ -168,6 +170,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let follow = item("Follow Claude", #selector(toggleFollow))
         follow.state = followsClaude ? .on : .off
         menu.addItem(follow)
+
+        if Hooks.claudeCodeFound {
+            let hooks = item("Use Claude Code Hooks", #selector(toggleHooks))
+            hooks.state = Hooks.isInstalled ? .on : .off
+            menu.addItem(hooks)
+        }
 
         let login = item("Open at Login", #selector(toggleOpenAtLogin))
         login.state = SMAppService.mainApp.status == .enabled ? .on : .off
@@ -383,6 +391,77 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func toggleFollow() {
         followsClaude.toggle()
         pet.setClaude(followsClaude ? claudeState : .idle, mode: workMode, quietly: true)
+    }
+
+    // MARK: Claude Code's sessions
+
+    /// Tells you when a session needs you or has finished. A permission
+    /// request is only told of once it's still waiting a few seconds on, as
+    /// you've often seen to it by then; anything still waiting three minutes
+    /// later is told of again.
+    private func claudeEvent(_ event: ClaudeWatcher.Event) {
+        guard followsClaude, demo == nil else { return }
+        switch event {
+        case .started:
+            break
+        case .needsYou(let session):
+            var wait = 0.0
+            if case .permission = session.need { wait = 8 }
+            remind(session, after: wait)
+            remind(session, after: wait + 180, again: true)
+        case .finished(let session, _):
+            chat.say("\(session.project) · \(session.title) is done!", linger: 6)
+        }
+    }
+
+    /// Says what a session needs, if it still needs it after `delay` seconds.
+    private func remind(_ session: ClaudeWatcher.Session, after delay: Double, again: Bool = false) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self, self.followsClaude, self.demo == nil,
+                  let now = self.watcher.sessions.first(where: { $0.id == session.id }), let need = now.need,
+                  need == session.need
+            else { return }
+            let name = "\(now.project) · \(now.title)"
+            var line: String
+            switch need {
+            case .permission(let what): line = what.isEmpty ? "\(name) needs your OK." : "\(name) needs your OK: \(what)"
+            case .question(let question): line = question.isEmpty ? "\(name) has a question for you." : "\(name) asks: \(question)"
+            case .plan: line = "\(name) has a plan for you to look over."
+            }
+            if again { line = "Still waiting on you: " + line }
+            self.chat.say(line, linger: 8)
+            self.pet.perk()
+        }
+    }
+
+    /// Offers once, when Claude Code is about and the hooks aren't in, to add them.
+    private func offerHooks() {
+        guard Hooks.claudeCodeFound, !Hooks.isInstalled, !defaults.bool(forKey: "hooksOffered") else { return }
+        defaults.set(true, forKey: "hooksOffered")
+        let alert = NSAlert()
+        alert.messageText = "Let Clawd keep an exact eye on Claude Code?"
+        alert.informativeText = """
+        Clawde can add a few hooks to Claude Code's settings (~/.claude/settings.json) so Clawd knows the moment \
+        a session needs your permission, asks you something or finishes. The hooks only write a line to Clawde's \
+        own folder; nothing leaves your Mac. Your settings are backed up first, and you can take the hooks out \
+        from the menu at any time.
+        """
+        alert.addButton(withTitle: "Add Hooks")
+        alert.addButton(withTitle: "Not Now")
+        NSApp.activate()
+        if alert.runModal() == .alertFirstButtonReturn { setHooks(on: true) }
+    }
+
+    @objc private func toggleHooks() { setHooks(on: !Hooks.isInstalled) }
+
+    private func setHooks(on: Bool) {
+        do {
+            if on { try Hooks.install() } else { try Hooks.uninstall() }
+        } catch {
+            let alert = NSAlert(error: error)
+            NSApp.activate()
+            alert.runModal()
+        }
     }
 
     /// Adds Clawde to your login items, or takes it off. If macOS wants the
