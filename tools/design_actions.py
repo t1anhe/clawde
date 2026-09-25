@@ -501,18 +501,18 @@ def act_headphones():
 LAPTOP_X = 8.5   # where the base starts, just in front of the claw
 
 
-def laptop(f, open_=3.0, y=0.0, lit=True, flicker=0, tap=None, poof=False):
+def laptop(f, open_=4.0, y=0.0, lit=True, flicker=0, tap=None, poof=False):
     """The laptop on the ground (or `y` up), its lid `open_` units tall (0
     shut); `tap` lights a key under the claw; `poof` is it going in dots."""
     x = LAPTOP_X
-    base = rect_cells(x, y, 5, 1.0)
+    base = rect_cells(x, y, 6, 1.0)
     lid = set()
     if open_ > 0:
         # Leaning back a pixel every 1.5 units as it rises from the hinge.
         for k in range(round(open_ * 2)):
-            lid.add((x + 4.5 + (k // 3) * 0.5, y + 1.0 + k * 0.5))
+            lid.add((x + 5.5 + (k // 3) * 0.5, y + 1.0 + k * 0.5))
     else:
-        base |= rect_cells(x, y + 1.0, 5, 0.5)
+        base |= rect_cells(x, y + 1.0, 6, 0.5)
     if poof:
         for cx, cy in sorted(base | lid):
             if round((cx + cy) * 2) % 2 == 0:
@@ -520,7 +520,7 @@ def laptop(f, open_=3.0, y=0.0, lit=True, flicker=0, tap=None, poof=False):
         return
     fill(f, base | lid, GRAY)
     if open_ > 0:
-        for k in range(4):
+        for k in range(5):
             key = (x + 0.5 + k, y + 0.5)
             dot(f, *key, CREAM if tap == key else GRAY_DARK)
     if lit and open_ >= 3.0:
@@ -533,7 +533,7 @@ def laptop(f, open_=3.0, y=0.0, lit=True, flicker=0, tap=None, poof=False):
 def act_laptop():
     frames = []
 
-    def pose(open_=3.0, lit=True, flicker=0, tap=None, laptop_y=0.0, show=True, poof=False, hold_=1, **body):
+    def pose(open_=4.0, lit=True, flicker=0, tap=None, laptop_y=0.0, show=True, poof=False, hold_=1, **body):
         f = Frame()
         body.setdefault("side", True)
         clawd(f, **body)
@@ -549,8 +549,8 @@ def act_laptop():
     pose(open_=0, laptop_y=1.5, lit=False, side=False, eyes="up")
     pose(open_=0, lit=False, eyes="wide", arms=(None, "rest"), hold_=2)
     pose(open_=0, lit=False, bottom=1.5, dx=0.5, eyes="shut", arms=(None, "low"))
-    pose(open_=1.5, lit=False, bottom=1.5, dx=0.5, arms=(None, 5.0))
-    pose(open_=3.0, bottom=1.5, dx=0.5, eyes="wide", arms=(None, 5.5), hold_=2)
+    pose(open_=2.0, lit=False, bottom=1.5, dx=0.5, arms=(None, 5.0))
+    pose(open_=4.0, bottom=1.5, dx=0.5, eyes="wide", arms=(None, 5.5), hold_=2)
     pose(bottom=1.5, dx=0.5, eyes="glee", arms=(None, "high"))
     pose(bottom=1.5, dx=0.5, eyes="glee", arms=(None, "up"))
     lead = len(frames)
@@ -559,14 +559,14 @@ def act_laptop():
     # down at the keys now and then, the screen flickering as the text
     # scrolls; a pause to think, eyes up; then a burst with eyes on the keys
     # and a hard press of the last one.
-    keys = [(LAPTOP_X + 0.5 + k, 0.5) for k in range(4)]
+    keys = [(LAPTOP_X + 0.5 + k, 0.5) for k in range(5)]
     for i in range(36):
         if 22 <= i < 28:
             pose(bottom=1.5, dx=0.5, arms=(None, 6.0), look=(0.0, 0.5), flicker=i // 6)
             continue
         fast = i >= 28
         down = (i % 2 == 0) if fast else (i // 2 % 2 == 0)
-        tap = keys[(i * 3) % 4] if down else None
+        tap = keys[(i * 3) % 5] if down else None
         glance = fast or i % 11 in (8, 9, 10)
         pose(bottom=1.0 if i == 35 else 1.5, dx=0.5, arms=(None, 6.5 if down else 6.0),
              look=(0.0, -0.5) if glance else (0.0, 0.0), eyes="shut" if i == 14 else "open", tap=tap, flicker=i // 6)
@@ -574,7 +574,7 @@ def act_laptop():
 
     # Done: sitting up, the lid shut, standing, the laptop gone in a puff.
     pose(bottom=1.5, dx=0.5, arms=(None, "low"), eyes="content")
-    pose(open_=1.5, lit=False, bottom=1.5, dx=0.5, arms=(None, 5.0), eyes="content")
+    pose(open_=2.0, lit=False, bottom=1.5, dx=0.5, arms=(None, 5.0), eyes="content")
     pose(open_=0, lit=False, bottom=1.5, dx=0.5, arms=(None, "low"))
     pose(open_=0, lit=False, arms=(None, "rest"), eyes="glee")
     pose(open_=0, lit=False, poof=True, side=False, eyes="glee")
