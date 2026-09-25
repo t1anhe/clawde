@@ -8,7 +8,7 @@ A little Clawd who lives on your Mac, just above the Dock, and acts out what you
   <img src="docs/reading.gif" alt="Reading while you read or code" height="120">
 </p>
 
-> **An unofficial fan project.** Clawd is the mascot of Anthropic's Claude Code, and Clawd and Claude are Anthropic's. Clawde isn't made, endorsed or supported by Anthropic, and ships none of Anthropic's artwork: every animation is drawn for this project in the style of the official pixel art, some of them after official ones.
+> **An unofficial fan project.** Clawd is the mascot of Anthropic's Claude Code, and Clawd and Claude are Anthropic's.
 
 ## What Clawd does
 
