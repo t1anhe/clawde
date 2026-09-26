@@ -80,9 +80,14 @@ def convert(path):
                                    snap((x1 - x0) / 100), snap((y1 - y0) / 100), color])
         frames.append(blocks)
     animation = {"fps": lottie["fr"], "frames": frames}
-    loop = next((m for m in lottie.get("markers", []) if m.get("cm") == "loop"), None)
+    markers = lottie.get("markers", [])
+    loop = next((m for m in markers if m.get("cm") == "loop"), None)
     if loop:
         animation["loop"] = [loop["tm"], loop["tm"] + loop["dr"] - 1]
+    # The frame a clip touches something the pet draws itself (a note pinned up or pulled down).
+    touch = next((m for m in markers if m.get("cm") == "touch"), None)
+    if touch:
+        animation["touch"] = touch["tm"]
     return animation
 
 

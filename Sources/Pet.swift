@@ -42,6 +42,10 @@ final class Pet {
         case pack(since: Double, cheers: Bool)
         /// Playing one of the bundled clips until then.
         case perform(String, since: Double, until: Double)
+        /// Walking over to the board for a chore, or home again (no chore).
+        case errand(to: CGFloat, chore: Board.Chore?)
+        /// At the board, playing the chore's clip until then.
+        case chore(Board.Chore, since: Double, until: Double)
         /// Going round a clip's loop since then for as long as its reason
         /// lasts: the headphones while music plays, thinking while Claude
         /// waits on you. Let go, it finishes the time round and its outro.
@@ -71,6 +75,8 @@ final class Pet {
     private(set) var claude = ClaudeState.idle
     private var workMode = WorkMode.typing
     var makeMenu: (() -> NSMenu)?
+    /// The board Clawd writes Claude Code's sessions up on.
+    weak var board: Board?
     /// Every frame, after Clawd has moved.
     var onTick: (() -> Void)?
     var onPoke: (() -> Void)?
@@ -277,7 +283,7 @@ final class Pet {
 
     /// One of Claude's commits or pushes went through: off Clawd sails.
     func shipped() {
-        guard !isCarried, !isAirborne else { return }
+        guard !isCarried, !isAirborne, board?.busy == nil else { return }
         perform("sailboat")
     }
 
@@ -466,6 +472,9 @@ final class Pet {
 
     var visibleFrame: NSRect { currentScreen().visibleFrame }
 
+    /// The window Clawd draws in.
+    var window: NSWindow { panel }
+
     // MARK: Frame
 
     private func tick() {
@@ -516,6 +525,12 @@ final class Pet {
         }
 
         panel.setFrameOrigin(NSPoint(x: x.rounded(), y: y.rounded()))
+        if let board {
+            // Picked up or set to something else halfway: the chore gets done anyway.
+            if let busy = board.busy, !isDoing(busy) { board.finish(busy) }
+            board.follow(homeBodyLeft: home + Renderer.padX(unit: unit) + 2 * unit, screen: visible, unit: unit,
+                         scale: panel.backingScaleFactor, below: panel.windowNumber)
+        }
         if Self.debug { log() }
         followPointer()
         updateClickThrough()
@@ -528,13 +543,14 @@ final class Pet {
         if chatMood != .none, case .walk = behavior { behavior = .idle(until: clock + 2) }
         if chatMood != .none, case .idle = behavior { return }
         let want = self.want
+        let chores = board?.hasChores ?? false
         switch behavior {
         case .work:
-            if want != .work { behavior = .pack(since: clock, cheers: false) }
+            if want != .work || chores { behavior = .pack(since: clock, cheers: false) }
         case .hold(let name, let since):
             // Let go once its reason has passed or something matters more:
             // the music finishes its beat, a thought just stops.
-            if want != Self.reason(for: name), let clip = Animations.all[name] {
+            if want != Self.reason(for: name) || chores, let clip = Animations.all[name] {
                 let length = clip.length(releasedAt: clock - since, finishingRound: name == "headphones")
                 behavior = .perform(name, since: since, until: since + length)
             }
@@ -551,13 +567,32 @@ final class Pet {
                 if cheers { cheer() }
             }
         case .walk(let target):
-            if want != .free {
+            if want != .free || chores {
                 behavior = .idle(until: clock)
             } else if step(toward: target, speed: walkSpeed * unit, dt) {
                 behavior = .idle(until: clock + .random(in: 2...6))
             }
+        case .errand(let spot, let chore):
+            // Never somewhere Clawd can't get to, or it would walk on for ever.
+            let target = min(max(spot, minX), maxX)
+            if step(toward: target, speed: walkSpeed * unit, dt) {
+                x = target
+                if let chore { startChore(chore) } else { behavior = .idle(until: clock) }
+            }
+        case .chore(let chore, let since, let until):
+            guard let clip = Animations.all[chore.clip], clock < until else {
+                board?.finish(chore)
+                // The next one, or home.
+                if let next = board?.nextChore() { go(to: next) } else { behavior = .errand(to: home, chore: nil) }
+                break
+            }
+            let t = clock - since
+            board?.progress(chore, clip.loopProgress(at: t, of: until - since),
+                            touched: clip.touch.map { clip.index(at: t, of: until - since) >= $0 } ?? false)
         case .idle(let until):
-            if want != .free {
+            if let chore = board?.nextChore() {
+                go(to: chore)
+            } else if want != .free {
                 take(want)
             } else if clock > until {
                 if userIdle >= awayAfter {
@@ -571,7 +606,43 @@ final class Pet {
             }
         case .sleep:
             // Claude needing it wakes it; what you're up to doesn't.
-            if !Self.company.contains(want) { take(want) }
+            if chores {
+                behavior = .idle(until: clock)
+            } else if !Self.company.contains(want) {
+                take(want)
+            }
+        }
+    }
+
+    /// Off to the board for a chore, or straight into it if already there.
+    private func go(to chore: Board.Chore) {
+        skateTo = nil
+        let target = chore.spot - Renderer.padX(unit: unit) - 2 * unit
+        if abs(target - x) < 1 {
+            x = target
+            startChore(chore)
+        } else {
+            behavior = .errand(to: target, chore: chore)
+        }
+    }
+
+    /// Turned to the board, the chore's clip playing for about as long as it wants.
+    private func startChore(_ chore: Board.Chore) {
+        guard let clip = Animations.all[chore.clip] else {
+            board?.finish(chore)
+            behavior = .idle(until: clock)
+            return
+        }
+        facing = chore.facing
+        behavior = .chore(chore, since: clock, until: clock + clip.length(about: chore.seconds))
+    }
+
+    /// Whether Clawd is on its way to `chore` or doing it.
+    private func isDoing(_ chore: Board.Chore) -> Bool {
+        switch behavior {
+        case .errand(_, let on): return on == chore
+        case .chore(let on, _, _): return on == chore
+        default: return false
         }
     }
 
@@ -601,8 +672,9 @@ final class Pet {
         }
         switch want {
         case .work:
-            // Face the middle of the screen, where the laptop has room.
-            faceMiddle()
+            // Face the board while it's up, the laptop between them; else
+            // the middle of the screen, where the laptop has room.
+            if let side = board?.side { facing = side } else { faceMiddle() }
             behavior = .work(since: clock)
         case .free:
             break
@@ -637,6 +709,8 @@ final class Pet {
         case .work: doing = "work"
         case .pack(_, let cheers): doing = cheers ? "pack+cheer" : "pack"
         case .perform(let name, _, _): doing = "perform \(name)"
+        case .errand(_, let chore): doing = chore.map { "to the board: \($0.clip)" } ?? "back from the board"
+        case .chore(let chore, _, _): doing = "board: \(chore.clip)"
         case .hold(let name, _): doing = "hold \(name)"
         case .sleep: doing = sleptOnPurpose ? "sleep (asked)" : "sleep"
         }
@@ -729,7 +803,12 @@ final class Pet {
             case .hold(let name, let since):
                 if let clip = Animations.all[name] { pose.action = .clip(name, clip.loopingIndex(at: clock - since)) }
                 pose.facing = facing
-            case .walk:
+            case .chore(let chore, let since, let until):
+                if let clip = Animations.all[chore.clip] {
+                    pose.action = .clip(chore.clip, clip.index(at: clock - since, of: until - since))
+                }
+                pose.facing = facing
+            case .walk, .errand:
                 pose.action = clock < landedUntil ? .land : .walk(frame(walkFPS, of: 4))
                 pose.facing = clock < landedUntil ? 0 : facing
             case .sleep:

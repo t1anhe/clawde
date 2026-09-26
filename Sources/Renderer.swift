@@ -111,8 +111,13 @@ enum Renderer {
 
     // MARK: Figure
 
-    /// Clawd's own colours by role; `custom` is a prop's, given by the block.
-    enum Tone { case body, shade, eye, lid, keys, custom }
+    /// Clawd's own colours by role; `custom` is a prop's, given by the block;
+    /// `tool` one of the board's tools (`tools`).
+    enum Tone: Equatable { case body, shade, eye, lid, keys, custom, tool(Int) }
+
+    /// What Clawd writes and rubs out with at the board, as the board has
+    /// them: the stick and its tip, the duster's back and felt, the chalk dust.
+    nonisolated(unsafe) static var tools: [NSColor] = []
 
     struct Block {
         var x, y, w, h: CGFloat
@@ -253,7 +258,10 @@ enum Renderer {
             // The body's left edge sits 2 units into the canvas; facing left
             // mirrors about the body's middle.
             let x = mirrored ? 10 - block.x - block.w : block.x + 2
-            (block.color ?? color(block.tone)).withAlphaComponent(block.alpha).setFill()
+            let fill = block.color ?? color(block.tone)
+            // A tool the board hasn't got (the whiteboard's chalk dust) isn't drawn.
+            if fill.alphaComponent == 0 { continue }
+            fill.withAlphaComponent(block.alpha).setFill()
             pixelAligned(NSRect(x: o.x + x * u, y: o.y + (rows - block.y - block.h) * u, width: block.w * u, height: block.h * u)).fill()
         }
     }
@@ -266,6 +274,7 @@ enum Renderer {
         case .lid: Palette.lid
         case .keys: Palette.keys
         case .custom: Palette.body
+        case .tool(let n): tools.indices.contains(n) ? tools[n] : Palette.cream
         }
     }
 

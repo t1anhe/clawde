@@ -16,6 +16,9 @@ enum Animations {
         /// Frames that repeat while the clip plays on. Those before are its
         /// lead-in and those after its outro, each played once.
         var loop: ClosedRange<Int>?
+        /// The frame it touches something the pet draws itself: a note
+        /// pinned up on the board, or pulled down.
+        var touch: Int?
 
         var seconds: Double { Double(frames.count) / fps }
 
@@ -48,6 +51,14 @@ enum Animations {
             let n = max(0, Int(t * fps))
             guard let loop, n > loop.upperBound else { return min(n, frames.count - 1) }
             return loop.lowerBound + (n - loop.lowerBound) % loop.count
+        }
+
+        /// How far round its loop a play `length` seconds long has got `t`
+        /// seconds in, from 0 as the loop starts to 1 as the outro does.
+        func loopProgress(at t: Double, of length: Double) -> Double {
+            guard let loop else { return min(1, max(0, t / max(length, 0.001))) }
+            let start = Double(loop.lowerBound) / fps, end = length - Double(outro) / fps
+            return min(1, max(0, (t - start) / max(end - start, 0.001)))
         }
 
         /// The frame `t` seconds into a play `length` seconds long.
@@ -89,14 +100,16 @@ enum Animations {
                 return Frame(blocks: blocks, top: top)
             }
             let loop = (entry["loop"] as? [NSNumber]).flatMap { $0.count == 2 ? $0[0].intValue...$0[1].intValue : nil }
-            return Clip(fps: fps, frames: frames, loop: loop)
+            return Clip(fps: fps, frames: frames, loop: loop, touch: (entry["touch"] as? NSNumber)?.intValue)
         }
     }
 
     /// Clawd's own colours map to its tones, so blinking and the palette still
-    /// apply; anything else is drawn in its own colour.
+    /// apply, and the board clips' stand-ins to the board's tools; anything
+    /// else is drawn in its own colour.
     private static let tones: [String: Renderer.Tone] = [
         "#D87656": .body, "#BE684D": .shade, "#000000": .eye, "#8B8B8B": .keys,
+        "#F100F1": .tool(0), "#F100F2": .tool(1), "#F100F3": .tool(2), "#F100F4": .tool(3), "#F100F5": .tool(4),
     ]
 
     private static func block(_ row: [Any]) -> Renderer.Block? {

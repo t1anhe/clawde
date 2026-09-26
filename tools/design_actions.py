@@ -2196,6 +2196,255 @@ def act_sparkler():
     return {"fps": 12, "frames": frames, "loop": loop}
 
 
+# MARK: Bulletin board
+
+# The board the pet puts up while Claude Code sessions work, a row to a
+# session (Sources/Board.swift draws it). Clawd walks over, turns to it and
+# writes each new session up on the bottom row, where it can reach; when one
+# is done it rubs its row out, on tiptoe for the middle row and jumping for
+# the top one. On the cork board it pins a note up and writes on that, and
+# pulls the note down again when the session's done.
+#
+# Clawd stands in front of the board's near end, turned to it: the board's
+# rows have their middles ROW_MIDDLES up (bottom up), the cork board's notes
+# NOTE_MIDDLES, and a note's near edge is NOTE_NEAR along.
+ROW_MIDDLES = (5.0, 8.75, 12.5)
+NOTE_MIDDLES = (5.5, 10.0, 14.5)
+NOTE_NEAR = 9.0
+# What Clawd writes and rubs out with is drawn in stand-in colours that the
+# pet swaps for the board's own tools: chalk and a duster, a marker and an
+# eraser, a pen; the dust is the chalk's.
+TOOL, TOOL_TIP, TOOL_BACK, TOOL_FELT, TOOL_DUST = "#F100F1", "#F100F2", "#F100F3", "#F100F4", "#F100F5"
+# A note's shaded lower edge, as the board draws its notes.
+PAPER_EDGE = "#E3CFA6"
+
+
+def near_claw(f, x, y, h=2.0):
+    """The near claw of Clawd turned right, its bottom left at (x, y), its
+    back half-unit in shade; taller than 2, it's the arm thrown up to it."""
+    fill(f, rect_cells(x, y, 1.5, h), BODY)
+    fill(f, rect_cells(x, y, 0.5, h), SHADE)
+
+
+def stick(f, x, y):
+    """Chalk, a marker or a pen held in a claw whose top two units start at
+    (x, y): slanting down from its front to the tip on the board."""
+    f.add(x + 1.5, y + 1.5, 0.5, 0.5, TOOL)
+    f.add(x + 2.0, y + 1.0, 0.5, 0.5, TOOL)
+    f.add(x + 2.5, y + 0.5, 0.5, 0.5, TOOL_TIP)
+
+
+def duster(f, x, y):
+    """The duster (or eraser) pressed to the board, gripped at its near end:
+    its back along the top, the felt a strip under it."""
+    fill(f, rect_cells(x + 1.0, y + 1.0, 2.5, 0.5), TOOL_BACK)
+    fill(f, rect_cells(x + 1.0, y + 0.5, 2.5, 0.5), TOOL_FELT)
+
+
+def held_note(f, x, y):
+    """A note in the claw, ready to pin up."""
+    fill(f, rect_cells(x + 1.0, y + 0.5, 2.0, 1.5), CREAM)
+    fill(f, rect_cells(x + 1.0, y + 0.5, 2.0, 0.5), PAPER_EDGE)
+
+
+def crumpled(f, x, y):
+    """A note just pulled off, crumpling in the claw."""
+    fill(f, rect_cells(x + 1.0, y + 0.5, 1.5, 1.0), CREAM)
+    f.add(x + 1.5, y + 0.5, 0.5, 0.5, PAPER_EDGE)
+    f.add(x + 2.0, y + 1.0, 0.5, 0.5, PAPER_EDGE)
+
+
+def paper_ball(f, x, y):
+    """The note screwed up into a ball, its bottom left at (x, y)."""
+    fill(f, rect_cells(x, y, 1.0, 1.0), CREAM)
+    f.add(x + 0.5, y, 0.5, 0.5, PAPER_EDGE)
+
+
+def board_pose(frames, claw=None, reach=2.0, tool=None, dust=(), hold_=1, **body):
+    """Clawd turned to the board. `claw` is the near claw's bottom left, or
+    None to leave it at its side; `reach` how tall it is (the arm thrown up
+    to it past 2); `tool` draws what it holds, at the claw's top two units."""
+    f = Frame()
+    body.setdefault("side", True)
+    body["arms"] = (None, "rest" if claw is None else None)
+    clawd(f, **body)
+    if claw is not None:
+        x, y = claw
+        if tool is not None:
+            tool(f, x, y + reach - 2)
+        near_claw(f, x, y, reach)
+    for x, y in dust:
+        dot(f, x, y, TOOL_DUST)
+    frames.extend([f] * hold_)
+    return f
+
+
+def dust_falling(spawns, frame, loop_len, x0):
+    """Chalk dust shaken off the duster: each loop frame lets `spawns[i]`
+    specks go from under the felt at `x0` + their offsets, falling half a unit
+    a frame for four frames and drifting, round the loop without a seam."""
+    specks = []
+    for age in range(4):
+        born = (frame - age) % loop_len
+        for dx, y in spawns[born]:
+            specks.append((x0 + dx + (0.5 if age >= 2 and dx < 1 else 0.0), y - 0.5 * (age + 1)))
+    return specks
+
+
+def act_board_write(pin=False):
+    """Writing a new session up on the board's bottom row; or, `pin`, on the
+    cork board: pinning a note up and writing on it with a pen. The pet
+    shows the row's words coming as the loop goes round, and the pinned
+    note from the "touch" frame on."""
+    frames = []
+    middle = NOTE_MIDDLES[0] if pin else ROW_MIDDLES[0]
+    cy = snap(middle - 1.0)
+    touch = None
+    board_pose(frames)
+    if pin:
+        # A note out, lifted, pressed on with a squash; there it stays.
+        board_pose(frames, claw=(8.0, 4.0), tool=held_note, bottom=1.5, eyes="shut")
+        board_pose(frames, claw=(8.0, 6.0), tool=held_note, height=6.5, eyes="wide", hold_=2)
+        board_pose(frames, claw=(8.5, cy), tool=held_note, bottom=1.5, eyes="shut")
+        touch = len(frames) - 1
+        board_pose(frames, claw=(8.0, cy), eyes="glee", hold_=2)
+        board_pose(frames, claw=(8.0, cy - 0.5), tool=stick, bottom=1.5, eyes="open")
+    else:
+        # The chalk out with a dip, flourished, and to the board.
+        board_pose(frames, claw=(8.0, 4.0), tool=stick, bottom=1.5, eyes="shut")
+        board_pose(frames, claw=(8.0, 6.0), tool=stick, height=6.5, eyes="wide", hold_=2)
+        board_pose(frames, claw=(8.0, cy), tool=stick, eyes="open")
+    lead = len(frames)
+    # Writing: short strokes up and down as the claw works along the row and
+    # back, eyes down on it; a blink, and a dip for the full stop.
+    path = [(0, 0), (0, 0.5), (0.5, 0), (0.5, 0.5), (0.5, 0), (0, 0.5),
+            (0, 0), (0.5, 0.5), (0.5, 0), (0, 0.5), (0, 0), (0, -0.5)]
+    for i, (px, py) in enumerate(path):
+        board_pose(frames, claw=(8.0 + px, cy + py), tool=stick, look=(0.0, -0.5),
+                   eyes="shut" if i == 6 else "open", bottom=1.5 if i == 11 else 2.0)
+    loop = (lead, len(frames) - 1)
+    # Done: the claw down, a satisfied look.
+    board_pose(frames, claw=(8.0, cy), tool=stick, eyes="content")
+    board_pose(frames, eyes="content", hold_=2)
+    board_pose(frames)
+    action = {"fps": 12, "frames": frames, "loop": loop}
+    if touch is not None:
+        action["touch"] = touch
+    return action
+
+
+def act_board_erase(row):
+    """Rubbing row `row` (0 the bottom) out with the duster: standing for the
+    bottom row, on tiptoe for the middle one, jumping for the top one, chalk
+    dust coming off. The pet rubs the row's words out as the loop goes round."""
+    frames = []
+    middle = ROW_MIDDLES[row]
+    board_pose(frames)
+    board_pose(frames, claw=(8.0, 4.0), tool=duster, bottom=1.5, eyes="shut")
+    if row == 0:
+        # Standing: round and round in small circles.
+        cy = snap(middle - 1.0)
+        board_pose(frames, claw=(8.0, cy), tool=duster, eyes="wide", hold_=2)
+        scrub = [(0, 0), (0.5, 0.5), (0.5, 0), (0, -0.5), (0, 0), (0.5, 0.5), (0.5, 0), (0, 0.5)]
+        spawns = [[(1.0, cy + 0.5), (2.5, cy + 0.5)] if i % 2 == 0 else [(2.0, cy + 0.5)] for i in range(len(scrub))]
+        lead = len(frames)
+        for i, (px, py) in enumerate(scrub):
+            board_pose(frames, claw=(8.0 + px, cy + py), tool=duster, look=(0.0, -0.5),
+                       dust=dust_falling(spawns, i, len(scrub), 8.0), bottom=1.5 if i % 4 == 0 else 2.0)
+        loop = (lead, len(frames) - 1)
+    elif row == 1:
+        # On tiptoe, stretched tall, the claw thrown up to the row.
+        top = 8.5
+        cy = snap(middle - 1.0)
+        board_pose(frames, claw=(8.0, top - 1.0), reach=cy + 2.0 - (top - 1.0), tool=duster, height=6.5,
+                   eyes="wide", look=(0.0, 0.5), hold_=2)
+        scrub = [(0, 0), (0.5, 0.5), (0.5, 0), (0, -0.5), (0, 0), (0.5, 0.5), (0.5, 0), (0, 0.5)]
+        spawns = [[(1.0, cy + 0.5), (2.5, cy + 0.5)] if i % 2 == 0 else [(2.0, cy + 0.5)] for i in range(len(scrub))]
+        lead = len(frames)
+        for i, (px, py) in enumerate(scrub):
+            stretch = 7.0 if i % 4 == 1 else 6.5
+            t = 2.0 + stretch
+            board_pose(frames, claw=(8.0 + px, t - 1.0), reach=cy + py + 2.0 - (t - 1.0), tool=duster, height=stretch,
+                       look=(0.0, 0.5), dust=dust_falling(spawns, i, len(scrub), 8.0))
+        loop = (lead, len(frames) - 1)
+    else:
+        # Jumping for it, a rub at the top of every jump.
+        cy = snap(middle - 1.0)
+        lead = len(frames)
+        hops = [dict(bottom=1.5, claw=4.0, reach=2.0, rub=None, eyes="shut"),
+                dict(lift=2.0, height=6.5, claw=None, rub=None, eyes="wide"),
+                dict(lift=4.0, claw=None, rub=(0.0, 0.0), eyes="open"),
+                dict(lift=4.0, claw=None, rub=(0.5, 0.5), eyes="open"),
+                dict(lift=2.0, claw=None, rub=None, eyes="open"),
+                dict(bottom=1.5, claw=4.5, reach=2.0, rub=None, eyes="shut")]
+        spawns = [[(1.0, cy + 0.5), (2.5, cy + 0.5)] if hop["rub"] else [] for hop in hops]
+        for i, hop in enumerate(hops):
+            body = {k: v for k, v in hop.items() if k in ("bottom", "lift", "height", "eyes")}
+            top = body.get("lift", 0.0) + body.get("bottom", 2.0) + body.get("height", 6.0)
+            dust = dust_falling(spawns, i, len(hops), 8.0)
+            if hop["rub"] is not None:
+                px, py = hop["rub"]
+                board_pose(frames, claw=(8.0 + px, top - 1.0), reach=cy + py + 2.0 - (top - 1.0), tool=duster,
+                           look=(0.0, 0.5), dust=dust, **body)
+            elif hop["claw"] is None:
+                board_pose(frames, claw=(8.0, top - 1.0), reach=3.5, tool=duster, dust=dust, **body)
+            else:
+                board_pose(frames, claw=(8.0, hop["claw"]), tool=duster, dust=dust, **body)
+        loop = (lead, len(frames) - 1)
+    # Done: the duster down, a clap of dust off it, a pleased look.
+    board_pose(frames, claw=(8.0, 4.0), tool=duster, bottom=1.5, eyes="content",
+               dust=[(9.0, 3.5), (10.5, 3.5), (9.5, 3.0)])
+    board_pose(frames, eyes="glee", hold_=2)
+    board_pose(frames)
+    return {"fps": 12, "frames": frames, "loop": loop}
+
+
+def act_board_unpin(row):
+    """Pulling the cork board's note `row` (0 the bottom) down: reaching,
+    on tiptoe or jumping for it, gripping, pulling (the pet takes the note
+    off the board on the "touch" frame), screwing it up and tossing it away
+    over its shoulder."""
+    frames = []
+    middle = NOTE_MIDDLES[row]
+    cy = snap(middle - 1.0)
+    board_pose(frames)
+    board_pose(frames, bottom=1.5, eyes="shut")
+    if row == 0:
+        board_pose(frames, claw=(8.0, cy), eyes="wide")
+        board_pose(frames, claw=(8.5, cy), bottom=1.5, eyes="shut", hold_=2)
+        board_pose(frames, claw=(7.5, cy), tool=crumpled, eyes="wide")
+    elif row == 1:
+        top = 8.5
+        board_pose(frames, claw=(8.0, top - 1.0), reach=cy + 2.0 - (top - 1.0), height=6.5, eyes="wide",
+                   look=(0.0, 0.5))
+        board_pose(frames, claw=(8.5, top - 1.0), reach=cy + 2.0 - (top - 1.0), height=6.5, eyes="shut", hold_=2)
+        board_pose(frames, claw=(7.5, 6.0), tool=crumpled, bottom=1.5, eyes="wide")
+    else:
+        board_pose(frames, claw=(8.0, 4.5), lift=2.0, height=6.5, eyes="wide")
+        board_pose(frames, claw=(8.0, 12.5), reach=cy + 2.0 - 12.5, lift=5.5, eyes="wide", look=(0.0, 0.5))
+        board_pose(frames, claw=(8.5, 12.5), reach=cy + 2.0 - 12.5, lift=5.5, eyes="shut")
+        board_pose(frames, claw=(7.5, 7.5), tool=crumpled, lift=2.0, eyes="wide")
+        board_pose(frames, claw=(7.5, 4.0), tool=crumpled, bottom=1.5, eyes="wide")
+    touch = len(frames) - 1
+    # Screwed up in the claw, wound back and tossed over the shoulder; the
+    # ball arcs away behind and breaks up.
+    board_pose(frames, claw=(8.0, 4.5), tool=lambda f, x, y: paper_ball(f, x + 1.0, y + 0.5), eyes="content")
+    board_pose(frames, claw=(8.0, 8.5), reach=2.0, tool=lambda f, x, y: paper_ball(f, x + 0.5, y + 1.5),
+               bottom=1.5, eyes="shut")
+    flight = [(5.5, 12.0), (3.0, 13.0), (0.5, 13.0), (-2.0, 12.0), (-4.0, 10.5)]
+    for k, (bx, by) in enumerate(flight):
+        f = board_pose(frames, claw=(8.0, 6.0) if k < 2 else None, eyes="glee" if k < 3 else "open",
+                       height=6.5 if k == 0 else 6.0)
+        if k < 3:
+            paper_ball(f, bx, by)
+        else:
+            for cx, cy2 in ((bx, by), (bx + 0.5, by + 0.5)):
+                dot(f, cx, cy2, CREAM)
+    board_pose(frames, eyes="glee")
+    board_pose(frames)
+    return {"fps": 12, "frames": frames, "touch": touch}
+
+
 # MARK: All of them
 
 ACTIONS = {
@@ -2204,6 +2453,9 @@ ACTIONS = {
     "detective": act_detective, "hardhat": act_hardhat, "sailboat": act_sailboat, "calling": act_calling,
     "reading": act_reading, "yawn": act_yawn, "skateboard": act_skateboard, "gaming": act_gaming,
     "wizard": act_wizard, "guitar": act_guitar, "kite": act_kite, "sparkler": act_sparkler,
+    "board-write": act_board_write, "board-pin": lambda: act_board_write(pin=True),
+    **{f"board-erase-{row + 1}": (lambda row=row: act_board_erase(row)) for row in range(3)},
+    **{f"board-unpin-{row + 1}": (lambda row=row: act_board_unpin(row)) for row in range(3)},
 }
 
 
@@ -2244,9 +2496,13 @@ def lottie(name, action):
                               "a": {"a": 0, "k": [0, 0, 0]}, "s": {"a": 0, "k": [100, 100, 100]}}})
     doc = {"v": "5.7.4", "fr": action["fps"], "ip": 0, "op": count, "w": CANVAS_W, "h": CANVAS_H,
            "nm": f"Clawd-{name}", "ddd": 0, "assets": [], "layers": layers}
+    doc["markers"] = []
     if "loop" in action:
         start, end = action["loop"]
-        doc["markers"] = [{"cm": "loop", "tm": start, "dr": end - start + 1}]
+        doc["markers"].append({"cm": "loop", "tm": start, "dr": end - start + 1})
+    if "touch" in action:
+        # The frame something the pet draws is touched: a note pinned up or pulled down.
+        doc["markers"].append({"cm": "touch", "tm": action["touch"], "dr": 0})
     return doc
 
 

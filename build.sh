@@ -42,8 +42,11 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-# Clawd's animations, as tools/import_clawd.py converted them.
+# Clawd's animations, as tools/import_clawd.py converted them, and the
+# board's pixel font with its licence.
 cp Resources/clawd-animations.json "$APP/Contents/Resources/"
+cp Resources/fonts/fusion-pixel-12px-proportional.woff2 "$APP/Contents/Resources/"
+cp -R Resources/fonts/licenses "$APP/Contents/Resources/Fusion Pixel Font licenses"
 
 ICONSET=build/AppIcon.iconset
 rm -rf "$ICONSET"

@@ -17,6 +17,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let defaults = UserDefaults.standard
     private let watcher = ClaudeWatcher()
     private var pet: Pet!
+    /// Where Clawd writes up the Claude Code sessions at work.
+    private let board = Board()
     private var chat: ChatController!
     private var mind: Mind!
     private let senses = Senses()
@@ -57,6 +59,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         defaults.register(defaults: [
             "unit": Self.codeTabUnit, "followClaude": true, "chatModel": "claude-haiku-4-5",
             "chattiness": Mind.Chattiness.chatty.rawValue, "claudeConnected": false,
+            "boardStyle": Board.Style.chalk.rawValue,
         ])
         if defaults.string(forKey: "brainSession") == nil {
             defaults.set(UUID().uuidString.lowercased(), forKey: "brainSession")
@@ -64,6 +67,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         pet = Pet(unit: CGFloat(defaults.double(forKey: "unit")))
         pet.makeMenu = { [unowned self] in self.buildMenu() }
+        board.style = Board.Style(rawValue: defaults.string(forKey: "boardStyle") ?? "")
+        pet.board = board
         chat = ChatController(pet: pet)
         chat.brain.model = defaults.string(forKey: "chatModel") ?? "claude-haiku-4-5"
         chat.brain.sessionID = defaults.string(forKey: "brainSession") ?? chat.brain.sessionID
@@ -104,7 +109,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if CommandLine.arguments.contains("--demo") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in self?.startDemo() }
         }
+        // Started with --board-demo, made-up sessions come and go on the board.
+        if CommandLine.arguments.contains("--board-demo") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in self?.startBoardDemo() }
+        }
+        if let folder = ProcessInfo.processInfo.environment["CLAWD_RECORD"] {
+            recorder = Recorder(folder: folder, windows: { [unowned self] in [self.board.window, self.pet.window] })
+        }
     }
+
+    /// With CLAWD_RECORD set to a folder, what Clawd and the board look like
+    /// goes there a frame at a time.
+    private var recorder: Recorder?
 
     /// Tells Clawd what you're up to, once a second.
     private func startSensing() {
@@ -124,6 +140,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if senses.isGameInFront { gameSeen = Date() }
         pet.sense(idle: senses.idleSeconds, music: musicMisses < 2, reading: Self.readingApps.contains(senses.frontBundle),
                   gaming: Date().timeIntervalSince(gameSeen) < 10)
+        syncBoard()
+    }
+
+    /// The board kept to the sessions as they are.
+    private func syncBoard() {
+        guard followsClaude, demo == nil, !boardDemo else { return }
+        let sessions = watcher.sessions
+        board.sync(active: sessions.filter { $0.state != .idle }.map(Self.entry), known: Set(sessions.map(\.id)))
+    }
+
+    private static func entry(_ session: ClaudeWatcher.Session) -> Board.Entry {
+        Board.Entry(id: session.id, project: session.project, title: session.title, needsYou: session.need != nil)
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -170,6 +198,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let follow = item("Follow Claude", #selector(toggleFollow))
         follow.state = followsClaude ? .on : .off
         menu.addItem(follow)
+
+        let boards = NSMenu()
+        for style in Board.Style.allCases {
+            let entry = item(style.title, #selector(pickBoard(_:)))
+            entry.representedObject = style.rawValue
+            entry.state = board.style == style ? .on : .off
+            boards.addItem(entry)
+        }
+        boards.addItem(.separator())
+        let noBoard = item("No Board", #selector(pickBoard(_:)))
+        noBoard.representedObject = "off"
+        noBoard.state = board.style == nil ? .on : .off
+        boards.addItem(noBoard)
+        let boardItem = NSMenuItem(title: "Bulletin Board", action: nil, keyEquivalent: "")
+        boardItem.submenu = boards
+        menu.addItem(boardItem)
 
         if Hooks.claudeCodeFound {
             let hooks = item("Use Claude Code Hooks", #selector(toggleHooks))
@@ -312,17 +356,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func startDemo() {
         demo = (false, false, false, 0)
         pet.setClaude(.idle, quietly: true)
+        board.clear()
+        let session = { (needs: Bool) in Board.Entry(id: "demo", project: "clawde", title: "Demo", needsYou: needs) }
         let steps: [(after: Double, caption: String?, act: () -> Void)] = [
             (0, "Here comes the demo~", {}),
             (3, "You're playing music", { [weak self] in self?.demo?.music = true }),
-            (8, "Claude is thinking…", { [weak self] in self?.pet.setClaude(.thinking) }),
+            (8, "Claude is thinking…", { [weak self] in self?.pet.setClaude(.thinking); self?.board.started(session(false)) }),
             (7, "Claude has a plan: to work", { [weak self] in self?.pet.setClaude(.working, mode: .typing) }),
             (9, "Claude is looking things up", { [weak self] in self?.pet.setClaude(.working, mode: .searching) }),
             (8, "Claude is rebuilding code", { [weak self] in self?.pet.setClaude(.working, mode: .editing) }),
             (8, "Claude committed its work", { [weak self] in self?.pet.shipped() }),
-            (7, "Claude is waiting for you", { [weak self] in self?.pet.setClaude(.waiting) }),
-            (7, "You answered", { [weak self] in self?.pet.setClaude(.working, mode: .typing) }),
-            (5, "Claude is done", { [weak self] in self?.pet.setClaude(.idle) }),
+            (7, "Claude is waiting for you", { [weak self] in self?.pet.setClaude(.waiting); self?.board.started(session(true)) }),
+            (7, "You answered", { [weak self] in self?.pet.setClaude(.working, mode: .typing); self?.board.started(session(false)) }),
+            (5, "Claude is done", { [weak self] in self?.pet.setClaude(.idle); self?.board.finished("demo") }),
             (8, "Music off, you're in VS Code", { [weak self] in self?.demo?.music = false; self?.demo?.reading = true }),
             (9, "You're playing a game", { [weak self] in self?.demo?.reading = false; self?.demo?.gaming = true }),
             (10, "You're sitting still", { [weak self] in self?.demo?.gaming = false; self?.demo?.idle = 95 }),
@@ -361,7 +407,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         demoTimer?.invalidate()
         demoTimer = nil
         pet.setClaude(followsClaude ? claudeState : .idle, mode: workMode, quietly: true)
+        board.clear()
         sense()
+    }
+
+    /// Made-up sessions on the board, for trying it out (--board-demo): three
+    /// get going and a fourth waits its turn, one needs you, then they finish.
+    private var boardDemo = false
+
+    private func startBoardDemo() {
+        boardDemo = true
+        board.clear()
+        // --board-demo white (or cork) tries another board, this once.
+        let arguments = CommandLine.arguments
+        if let at = arguments.firstIndex(of: "--board-demo"), at + 1 < arguments.count,
+           let style = Board.Style(rawValue: arguments[at + 1]) {
+            board.style = style
+        }
+        let a = Board.Entry(id: "a", project: "my-app", title: "Login page", needsYou: false)
+        let b = Board.Entry(id: "b", project: "website", title: "Dark mode", needsYou: false)
+        let c = Board.Entry(id: "c", project: "api", title: "Rate limits", needsYou: false)
+        let d = Board.Entry(id: "d", project: "docs", title: "Typos", needsYou: false)
+        var needy = b
+        needy.needsYou = true
+        let steps: [(Double, () -> Void)] = [
+            (0, { [weak self] in self?.pet.setClaude(.working); self?.board.started(a) }),
+            (1, { [weak self] in self?.board.started(b) }),
+            (1, { [weak self] in self?.board.started(c) }),
+            (1, { [weak self] in self?.board.started(d) }),
+            (14, { [weak self] in self?.board.started(needy) }),
+            (4, { [weak self] in self?.board.finished("a") }),
+            (12, { [weak self] in self?.board.started(b); self?.board.finished("c") }),
+            (8, { [weak self] in self?.board.finished("b") }),
+            (8, { [weak self] in self?.board.finished("d") }),
+            (4, { [weak self] in self?.pet.setClaude(.idle, quietly: true) }),
+            (8, { [weak self] in
+                self?.boardDemo = false
+                if ProcessInfo.processInfo.environment["CLAWD_RECORD"] != nil { NSApp.terminate(nil) }
+            }),
+        ]
+        var at = 0.0
+        for (after, act) in steps {
+            at += after
+            DispatchQueue.main.asyncAfter(deadline: .now() + at) { act() }
+        }
     }
 
     /// A slider that resizes Clawd live while the menu is open, as wide as the menu.
@@ -391,6 +480,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func toggleFollow() {
         followsClaude.toggle()
         pet.setClaude(followsClaude ? claudeState : .idle, mode: workMode, quietly: true)
+        if followsClaude { syncBoard() } else { board.clear() }
+    }
+
+    @objc private func pickBoard(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String else { return }
+        defaults.set(raw, forKey: "boardStyle")
+        board.style = Board.Style(rawValue: raw)
+        syncBoard()
     }
 
     // MARK: Claude Code's sessions
@@ -400,12 +497,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// you've often seen to it by then; anything still waiting three minutes
     /// later is told of again.
     private func claudeEvent(_ event: ClaudeWatcher.Event) {
-        guard followsClaude, demo == nil else { return }
+        guard followsClaude, demo == nil, !boardDemo else { return }
         switch event {
         case .started(let session):
             log("started: \(session.project) · \(session.title)")
+            board.started(Self.entry(session))
         case .needsYou(let session):
             log("needs you: \(session.project) · \(session.title): \(session.need.map { "\($0)" } ?? "?")")
+            board.started(Self.entry(session))
             var wait = 0.0
             if case .permission = session.need { wait = 8 }
             remind(session, after: wait)
@@ -413,6 +512,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case .finished(let session, let said):
             log("finished: \(session.project) · \(session.title)\(session.interrupted ? " (interrupted)" : said == nil ? "" : " (with its last words)")")
             if !session.interrupted { say("\(session.project) · \(session.title) is done!", linger: 6) }
+            board.finished(session.id)
         }
     }
 

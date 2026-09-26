@@ -24,6 +24,10 @@ A little Clawd who lives on your Mac, just above the Dock, and acts out what you
 | waiting for your answer | waves at you with a big **!** |
 | done | cheers: confetti, sunglasses or a heart |
 
+**A board for your sessions.** While sessions work, a board stands beside Clawd with a row for each, its project and title. Clawd walks over and writes each one up as it starts, and rubs it out (jumping for the top row) when it's done. A red **!** marks one waiting on you, and a tab counts any beyond three. Pick a chalkboard, a whiteboard or a cork board of pinned notes under **Bulletin Board** in the menu, or no board.
+
+**To the moment, with hooks.** The first time it runs, Clawde offers to add a few hooks to Claude Code's settings (`~/.claude/settings.json`, backed up first). With them Clawd knows the moment a session needs your permission, asks you something or finishes, and tells you in its bubble. The hooks only add a line to `~/Library/Application Support/Clawde/events.jsonl` on your Mac (your prompts and Claude's last words included; it's kept under 4 MB and never sent anywhere). Take them out with **Use Claude Code Hooks** in the menu.
+
 **Along with you.** It notices what you're doing:
 
 - **Playing a game** (anything the Mac files as a game, anything from your Steam library, or Minecraft): a sofa and an old TV appear and Clawd plays along.
@@ -78,9 +82,12 @@ A few command-line switches help while working on it:
 | --- | --- |
 | `Clawde --simulate` | runs a scripted day without showing Clawd; with `CLAWD_DEBUG=1` it logs what Clawd does |
 | `Clawde --claude-state` | prints what Clawd reads from your Claude Code sessions |
+| `Clawde --hooks [on\|off]` | adds or takes out Clawde's Claude Code hooks, or says whether they're in |
+| `Clawde --board-demo [white\|cork]` | puts made-up sessions up on the board and takes them down again |
+| `CLAWD_RECORD=folder Clawde …` | saves what Clawd and the board look like as PNGs, twelve a second |
 | `Clawde --games` | lists which running apps Clawd counts as games |
 | `Clawde --sheet out.png` | draws every built-in pose to one image |
 
 ## License
 
-The code is under the [MIT License](LICENSE). Clawd, the character, belongs to Anthropic and isn't covered by it.
+The code is under the [MIT License](LICENSE). The board's lettering is [Fusion Pixel Font](https://github.com/TakWolf/fusion-pixel-font), under the SIL Open Font License 1.1 (its licences are in `Resources/fonts/licenses`). Clawd, the character, belongs to Anthropic and isn't covered by either.
