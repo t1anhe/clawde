@@ -55,7 +55,7 @@ Clawde needs macOS 14 or later and runs on Apple silicon and Intel Macs. It live
 
 ### Chatting with Clawd (optional)
 
-Turn on **Connect to Claude** in the menu and double-click Clawd to talk to it. Connected, Clawd also puts Claude Code's news in its own words (a session wants your OK, asks you something, is done), mutters now and then while Claude works, and teases you while you game; **Chattiness** sets how often. Chat runs through your own [Claude Code](https://claude.com/claude-code) command-line tool (`claude` must be installed and signed in) with a light model, and uses your own plan. Clawd keeps a few notes about you in `~/Library/Application Support/Clawde/notes.md`; the menu can open them or make Clawd forget everything.
+Turn on **Connect to Claude** in the menu and double-click Clawd to talk to it. Connected, Clawd also puts Claude Code's news in its own words (a session wants your OK, asks you something, is done), mutters now and then while Claude works, and teases you while you game; **Chattiness** sets how often. Chat runs through your own [Claude Code](https://claude.com/claude-code) command-line tool (`claude` must be installed and signed in) with a light model, and uses your own plan. The chat box shows what you two have said, and what Clawd told you on its own, so you can scroll back to a bubble you missed. Clawd keeps a few notes about you in `~/Library/Application Support/Clawde/notes.md` and the chat in `chat.jsonl` beside them; the menu can open the notes or make Clawd forget everything.
 
 ## Build from source
 
@@ -85,6 +85,7 @@ A few command-line switches help while working on it:
 | `Clawde --hooks [on\|off]` | adds or takes out Clawde's Claude Code hooks, or says whether they're in |
 | `Clawde --board-demo [white\|cork]` | puts made-up sessions up on the board and takes them down again |
 | `Clawde --tell "[event] …"` | sends one message to Clawd (its persona, a throwaway conversation) and prints the reply |
+| `Clawde --chat out.png` | draws the chat box with a made-up history |
 | `CLAWD_RECORD=folder Clawde …` | saves what Clawd and the board look like as PNGs, twelve a second |
 | `Clawde --games` | lists which running apps Clawd counts as games |
 | `Clawde --sheet out.png` | draws every built-in pose to one image |

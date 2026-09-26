@@ -198,6 +198,14 @@ final class Brain {
     }
 
     /// Whether Claude Code has saved this session, so it can be resumed.
+    /// Where a conversation's transcript is, if it has one yet.
+    static func transcript(of id: String) -> URL? {
+        let projects = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/projects")
+        let folders = (try? FileManager.default.contentsOfDirectory(atPath: projects.path)) ?? []
+        return folders.lazy.map { projects.appendingPathComponent("\($0)/\(id).jsonl") }
+            .first { FileManager.default.fileExists(atPath: $0.path) }
+    }
+
     /// Throws away a conversation's transcript, for one that was only ever a try-out.
     static func forget(_ id: String) {
         let projects = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/projects")

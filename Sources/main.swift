@@ -289,6 +289,29 @@ if arguments.count == 3, arguments[1] == "--tell" {
     }
     RunLoop.main.run()
 }
+if arguments.count >= 3, arguments[1] == "--chat" {
+    // Renders the chat box with a made-up history (and any more lines given,
+    // as "you: …" or "clawd: …"), to look at without opening it.
+    MainActor.assumeIsolated {
+        _ = NSApplication.shared
+        var entries: [ChatLog.Entry] = [
+            .init(who: .you, text: "hey Clawd, what are you up to?", at: 0),
+            .init(who: .clawd, text: "Watching Claude refactor your login page. It's going great… mostly.", at: 0),
+            .init(who: .you, text: "haha nice", at: 0),
+            .init(who: .clawd, text: "Want me to shout when it's done? I'll be right here, pretending to type.", at: 0),
+        ]
+        for extra in arguments.dropFirst(3) {
+            let clawd = extra.hasPrefix("clawd: ")
+            entries.append(.init(who: clawd ? .clawd : .you, text: String(extra.drop { $0 != " " }.dropFirst()), at: 0))
+        }
+        let panel = ChatInputPanel()
+        panel.layOut(history: entries)
+        guard let view = panel.contentView, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { exit(1) }
+        view.cacheDisplay(in: view.bounds, to: rep)
+        try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: arguments[2]))
+    }
+    exit(0)
+}
 if arguments.count == 4, arguments[1] == "--bubble" {
     // Renders a speech bubble holding the given text, to check wrapping.
     let view = SpeechView(frame: NSRect(origin: .zero, size: SpeechView.size(for: arguments[3])))

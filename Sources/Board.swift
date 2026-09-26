@@ -779,9 +779,9 @@ final class BoardPanel: NSPanel {
 }
 
 /// Fusion Pixel's 12-pixel proportional font (SIL Open Font License,
-/// github.com/TakWolf/fusion-pixel-font), bundled: the board's words, CJK
-/// and all, drawn a pixel at a time without smoothing.
-@MainActor
+/// github.com/TakWolf/fusion-pixel-font), bundled: the board's words and
+/// Clawd's speech, CJK and all, drawn a pixel at a time without smoothing.
+/// Used from the main thread only.
 enum BoardFont {
     struct Line {
         var width: Int
@@ -789,7 +789,7 @@ enum BoardFont {
         var lit: [(x: Int, y: Int)]
     }
 
-    private static let font: CTFont = {
+    nonisolated(unsafe) private static let font: CTFont = {
         if let url = Bundle.main.url(forResource: "fusion-pixel-12px-proportional", withExtension: "woff2"),
            let data = try? Data(contentsOf: url),
            let descriptor = CTFontManagerCreateFontDescriptorFromData(data as CFData) {
@@ -798,7 +798,22 @@ enum BoardFont {
         return CTFontCreateWithName("Menlo" as CFString, 11, nil)
     }()
 
-    private static var cache: [String: Line] = [:]
+    nonisolated(unsafe) private static var cache: [String: Line] = [:]
+    nonisolated(unsafe) private static var widths: [String: Int] = [:]
+
+    /// The font for text fields, at its own 12 points.
+    static var nsFont: NSFont { font as NSFont }
+
+    /// How wide `text` is, in font pixels, without drawing it.
+    static func width(_ text: String) -> Int {
+        if text.contains("·") { return line(text).width }
+        if let cached = widths[text] { return cached }
+        let attributed = NSAttributedString(string: text, attributes: [.font: font])
+        let width = Int(CTLineGetTypographicBounds(CTLineCreateWithAttributedString(attributed), nil, nil, nil).rounded())
+        if widths.count > 2000 { widths.removeAll() }
+        widths[text] = width
+        return width
+    }
 
     /// The row halfway down a lower-case x, for the dot between words.
     static let xMiddle: Int = {
@@ -808,6 +823,7 @@ enum BoardFont {
 
     static func line(_ text: String) -> Line {
         if let cached = cache[text] { return cached }
+        if text.contains("·") { return dotted(text) }
         let attributed = NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: NSColor.white])
         let ctLine = CTLineCreateWithAttributedString(attributed)
         let width = Int(CTLineGetTypographicBounds(ctLine, nil, nil, nil).rounded())
@@ -834,6 +850,34 @@ enum BoardFont {
         }
         let result = Line(width: width, lit: lit)
         if cache.count > 400 { cache.removeAll() }
+        cache[text] = result
+        return result
+    }
+
+    /// The font sets a middle dot full-width; between words it's drawn small
+    /// instead, as the board's rows have it: two pixels square, three either
+    /// side, the spaces round it taken out.
+    private static func dotted(_ text: String) -> Line {
+        let parts = text.components(separatedBy: "·")
+        var lit: [(x: Int, y: Int)] = []
+        var x = 0
+        for (k, part) in parts.enumerated() {
+            var piece = part
+            if k > 0 {
+                piece = String(piece.drop { $0 == " " })
+                for dx in 0..<2 {
+                    for dy in 0..<2 { lit.append((x + 3 + dx, xMiddle - 1 + dy)) }
+                }
+                x += 8
+            }
+            if k < parts.count - 1 {
+                while piece.hasSuffix(" ") { piece.removeLast() }
+            }
+            let drawn = line(piece)
+            lit += drawn.lit.map { ($0.x + x, $0.y) }
+            x += drawn.width
+        }
+        let result = Line(width: x, lit: lit)
         cache[text] = result
         return result
     }

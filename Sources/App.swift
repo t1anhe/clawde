@@ -329,6 +329,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSApp.activate()
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         mind.forgetNotes()
+        ChatLog.forget()
         let session = UUID().uuidString.lowercased()
         defaults.set(session, forKey: "brainSession")
         chat.brain.sessionID = session

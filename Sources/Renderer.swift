@@ -336,32 +336,22 @@ enum Renderer {
         }
     }
 
+    /// Clawd's own word over its head, in the pixel-art dialog box its chat
+    /// uses, wrapped to fit the window.
     private static func drawBubble(_ text: String, alpha: CGFloat, centerX: CGFloat, headTop: CGFloat, width: CGFloat) {
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 12, weight: .semibold),
-            .foregroundColor: Palette.bubbleText.withAlphaComponent(alpha),
-        ]
-        let textSize = (text as NSString).size(withAttributes: attributes)
-        let w = ceil(textSize.width) + 16
-        let h = ceil(textSize.height) + 8
-        let bottom = headTop - 9
+        guard let cg = NSGraphicsContext.current?.cgContext else { return }
+        let pad = (x: CGFloat(9), y: CGFloat(7))
+        let lines = PixelText.wrap(text, width: max(40, Int(width - 2 * pad.x - 4)))
+        let w = CGFloat(lines.map(BoardFont.width).max() ?? 0) + 2 * pad.x
+        let h = CGFloat(lines.count * PixelText.lineHeight - 2) + 2 * pad.y + CGFloat(PixelBoxView.tail)
+        let bottom = headTop - 5
         let left = min(max(centerX - w / 2, 2), width - w - 2)
-        let box = NSRect(x: left, y: bottom - h, width: w, height: h)
-
-        let path = NSBezierPath(roundedRect: box, xRadius: h / 2, yRadius: h / 2)
-        let tail = NSBezierPath()
-        tail.move(to: NSPoint(x: centerX - 5, y: bottom - 0.5))
-        tail.line(to: NSPoint(x: centerX + 5, y: bottom - 0.5))
-        tail.line(to: NSPoint(x: centerX, y: bottom + 6))
-        tail.close()
-
-        Palette.bubbleEdge.withAlphaComponent(0.14 * alpha).setStroke()
-        path.lineWidth = 1
-        path.stroke()
-        Palette.bubble.withAlphaComponent(0.96 * alpha).setFill()
-        path.fill()
-        tail.fill()
-        (text as NSString).draw(at: NSPoint(x: box.minX + 8, y: box.minY + 4), withAttributes: attributes)
+        PixelText.drawBox(NSRect(x: left, y: bottom - h, width: w, height: h), tailX: centerX, tail: PixelBoxView.tail,
+                          pixel: 1, alpha: alpha, in: cg)
+        for (k, line) in lines.enumerated() {
+            PixelText.draw(line, at: CGPoint(x: left + pad.x, y: bottom - h + pad.y + CGFloat(k * PixelText.lineHeight)),
+                           pixel: 1, color: PixelText.ink.withAlphaComponent(alpha), in: cg)
+        }
     }
 
     // MARK: Icons
