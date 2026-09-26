@@ -93,6 +93,10 @@ A few command-line switches help while working on it:
 | `Clawde --games` | lists which running apps Clawd counts as games |
 | `Clawde --sheet out.png` | draws every built-in pose to one image |
 
+## Contributing
+
+Clawde is a community project: if you love Clawd too, come and make it better. A new action, a fix, an idea, all welcome. Open an issue to talk it over, or send a pull request. The actions are drawn in code in `tools/design_actions.py`, whose opening notes describe the pixel style to keep to, and **Build from source** above has the rest.
+
 ## License
 
 The code is under the [MIT License](LICENSE). The board's lettering is [Fusion Pixel Font](https://github.com/TakWolf/fusion-pixel-font), under the SIL Open Font License 1.1 (its licences are in `Resources/fonts/licenses`). Clawd, the character, belongs to Anthropic and isn't covered by either.
