@@ -149,6 +149,11 @@ final class Pet {
     private var skate: (from: CGFloat, way: CGFloat, distance: CGFloat)?
     /// Claude has thought and is about to act: an idea first, then the laptop.
     private var ideaFirst = false
+    /// The ways Clawd thinks: the Code tab's own first, then, on a long
+    /// think, the others in turn, one at random every quarter minute or so.
+    private static let thoughts = ["thinking", "pencil", "stumped", "brainstorm"]
+    private var lastThought: String?
+    private var thinkFor = 15.0
     /// Put to sleep from the menu: you coming back doesn't wake it.
     private var sleptOnPurpose = false
     /// Whether it's blown bubbles yet this time you've sat still.
@@ -573,14 +578,18 @@ final class Pet {
         if chatMood != .none, case .idle = behavior { return }
         let want = self.want
         let chores = board?.hasChores ?? false
+        // A new think starts with the Code tab's way again.
+        if want != .think { lastThought = nil }
         switch behavior {
         case .work:
             if want != .work || chores { behavior = .pack(since: clock, cheers: false) }
         case .hold(let name, let since):
             // Let go once its reason has passed or something matters more:
-            // the music finishes its beat, a thought just stops.
-            if want != Self.reason(for: name) || chores, let clip = Animations.all[name] {
-                let length = clip.length(releasedAt: clock - since, finishingRound: name == "headphones")
+            // the music finishes its beat, a thought just stops. On a long
+            // think it finishes its round and takes up another way of thinking.
+            let rethink = want == .think && Self.reason(for: name) == .think && clock - since > thinkFor
+            if want != Self.reason(for: name) || chores || rethink, let clip = Animations.all[name] {
+                let length = clip.length(releasedAt: clock - since, finishingRound: name == "headphones" || rethink)
                 behavior = .perform(name, since: since, until: since + length)
             }
         case .perform(let name, let since, let until):
@@ -760,7 +769,7 @@ final class Pet {
         case .free:
             break
         default:
-            let name = Self.clips.first { $0.value == want }?.key ?? ""
+            let name = want == .think ? nextThought() : Self.clips.first { $0.value == want }?.key ?? ""
             // The TV goes up on the roomier side too.
             if want == .game || want == .browse { faceMiddle() }
             behavior = Animations.all[name] != nil ? .hold(name, since: clock) : .idle(until: clock + 1)
@@ -771,9 +780,20 @@ final class Pet {
         facing = x + panel.frame.width / 2 < currentScreen().visibleFrame.midX ? 1 : -1
     }
 
+    /// The way to think next: the Code tab's own to begin with, then any
+    /// other but the last, for a quarter minute or so each.
+    private func nextThought() -> String {
+        let ways = Self.thoughts.filter { Animations.all[$0] != nil }
+        let next = lastThought == nil ? ways.first : ways.filter { $0 != lastThought }.randomElement()
+        lastThought = next
+        thinkFor = .random(in: 10...18)
+        return next ?? "thinking"
+    }
+
     /// The clips held for as long as what Clawd wants lasts.
     private static let clips: [String: Want] = [
-        "detective": .investigate, "hardhat": .build, "thinking": .think, "calling": .call,
+        "detective": .investigate, "hardhat": .build, "thinking": .think, "pencil": .think, "stumped": .think,
+        "brainstorm": .think, "calling": .call,
         "gaming": .game, "headphones": .music, "reading": .read, "browsing": .browse,
     ]
 

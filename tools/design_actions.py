@@ -121,6 +121,8 @@ GRAY_DARK, SALMON_DARK = "#666666", "#B24C4E"
 # Near-black props' lit edges, so they still read on a dark desktop, and the
 # shade under the amber hard hat's brim.
 INK_LIGHT, AMBER_DARK = "#555555", "#B87E2C"
+# A pale blue for a screen's light, rain and sweat.
+PALE_BLUE = "#D8E8FF"
 # Claude FM's reading Clawd: maroon glasses (a tone lighter on their rounded
 # corners) and a blue book.
 MAROON, MAROON_LIGHT = "#6A1D2C", "#C87A7F"
@@ -1330,6 +1332,231 @@ def act_thinking():
     return {"fps": 12, "frames": frames, "loop": loop}
 
 
+# MARK: More ways to think
+
+# On a long think Clawd takes turns at these too: a pencil to its chin, its
+# head in its claws, and a brainstorm, a little storm cloud raining on it.
+
+# A pencil from its lead up to its eraser: the point, the sharpened wood, the
+# amber body, the gray ferrule and the pink eraser; its underside a tone darker.
+PENCIL = [INK_LIGHT, WOOD_LIGHT, AMBER, AMBER, AMBER, AMBER, GRAY, SALMON, SALMON]
+PENCIL_DARK = {SALMON: SALMON_DARK, GRAY: GRAY_DARK, AMBER: AMBER_DARK, WOOD_LIGHT: WOOD_LIGHT,
+               INK_LIGHT: INK_LIGHT}
+
+
+def pencil(f, lx, ly, skip=frozenset()):
+    """A pencil rising up and to the right from its lead at (lx, ly), two
+    pixels thick past the point; `skip` leaves out the cells a claw is over."""
+    by_color = {}
+    for k, color in enumerate(PENCIL):
+        x, y = lx + 0.5 * k, ly + 0.5 * k
+        by_color.setdefault(color, set()).add((x, y))
+        if k > 0:
+            by_color.setdefault(PENCIL_DARK[color], set()).add((x + 0.5, y))
+    for color, cells in by_color.items():
+        fill(f, cells - skip, color)
+
+
+def act_pencil():
+    """Side on, a pencil raised in the near claw, its point at Clawd's chin:
+    tap, tap, a long look up with a question over its head, a blink, tap."""
+    frames = []
+
+    def pose(tap=0.0, pen=True, claw="up", eyes="up", ask=None, **body):
+        """`tap` draws the pencil back off the chin half a unit."""
+        f = Frame()
+        head = clawd(f, side=True, bottom=body.pop("bottom", 1.5), arms=(None, claw), eyes=eyes, **body)
+        if pen:
+            lx, ly = head.held(8.0 + tap, head.top - 3.5 + tap)
+            pencil(f, lx, ly, skip=head.claws)
+        if ask is not None:
+            f.sprite(QUESTION, 2.0, head.top + 1.0 + ask, {"#": CREAM})
+        frames.append(f)
+        return f, head
+
+    pose(pen=False, eyes="open", claw="rest", bottom=2.0)
+    pose(pen=False, eyes="shut", claw="rest")
+    pose(tap=0.5, eyes="open")
+    hold(frames)
+    lead = len(frames)
+    for t in range(28):
+        tapping = t < 8 or 20 <= t
+        tap = 0.5 if tapping and t % 4 < 2 else 0.0
+        ask = None if t < 6 else (0.5 if t // 3 % 2 else 0.0)
+        pose(tap=tap, eyes="shut" if t == 15 else "up", ask=ask, tilt=3 if tap else 0)
+    loop = (lead, len(frames) - 1)
+    pose(tap=0.5, eyes="open")
+    pose(pen=False, eyes="glee", claw="rest", bottom=2.0)
+    pose(pen=False, eyes="open", claw="rest", bottom=2.0)
+    return {"fps": 12, "frames": frames, "loop": loop}
+
+
+def squeezed(f, head, dx=0.0):
+    """Eyes screwed shut, > and <, three pixels each where the eyes were."""
+    for x, point in ((dx + 1.0, 1), (dx + 6.0, -1)):
+        y = head.top - 2.0
+        ox, oy = head.lean.shift(rect_cells(x, y, 1, 1))
+        tip, back = (x + 0.5, x) if point > 0 else (x, x + 0.5)
+        for cx, cy in ((back, y), (tip, y + 0.5), (back, y + 1.0)):
+            f.add(cx + ox, cy + oy, 0.5, 0.5, EYE)
+
+
+def tangle(f, cx, cy, phase):
+    """A tangle of scribble round (cx, cy), writhing with `phase`: one pencil
+    line looping round on itself a few times, a pixel thick."""
+    path = []
+    steps = 600
+    for k in range(steps + 1):
+        t = 2 * math.pi * k / steps
+        r = 1.0 + 0.35 * math.sin(3 * t + phase)
+        x = cx + 2.2 * r * math.cos(2 * t) + 0.6 * math.cos(5 * t + phase)
+        y = cy + 1.1 * r * math.sin(3 * t + 0.6 * phase)
+        spot = (math.floor(x * 2) / 2, math.floor(y * 2) / 2)
+        if not path or path[-1] != spot:
+            path.append(spot)
+    # Thinned to a line: a cell goes where the ones either side already touch.
+    line = []
+    for k, spot in enumerate(path):
+        if line and k + 1 < len(path) and max(abs(line[-1][0] - path[k + 1][0]),
+                                               abs(line[-1][1] - path[k + 1][1])) <= 0.5:
+            continue
+        line.append(spot)
+    fill(f, set(line), GRAY)
+
+
+# A drop of sweat flying off to the right; flipped for the left.
+DROP = [".#",
+        "##"]
+
+
+def act_stumped():
+    """Its claws up at its cheeks and its eyes screwed shut > <, shaking its
+    head side to side under a tangle of scribble, sweat flying; a tremble,
+    then again."""
+    frames = []
+
+    def pose(eyes=None, scribble=None, sweat=(), clutch=True, **body):
+        """`clutch` holds its head, both claws up at its cheeks."""
+        f = Frame()
+        if clutch:
+            body["arms"] = ("up", "up")
+        head = clawd(f, eyes=eyes, **body)
+        if eyes is None:
+            squeezed(f, head, body.get("dx", 0.0))
+        if scribble is not None:
+            tangle(f, 4.0, head.top + 2.5, scribble)
+        for x, y, way in sweat:
+            f.sprite(DROP if way > 0 else [row[::-1] for row in DROP], x, y, {"#": PALE_BLUE})
+        frames.append(f)
+        return f, head
+
+    pose(eyes="open", arms=("rest", "rest"), clutch=False)
+    pose(eyes="wide", arms=("up", "up"), bottom=1.5, clutch=False)
+    pose(bottom=1.5, height=5.5)
+    hold(frames)
+    lead = len(frames)
+    shakes = [-6, -6, 6, 6, -6, -6, 6, 6, 0, 0]
+    for t in range(24):
+        tilt = shakes[t] if t < len(shakes) else (2 if t % 2 else -2) if t < 18 else 0
+        sweat = []
+        if t in (2, 3, 6, 7):
+            way = 1 if tilt > 0 else -1
+            sweat = [(4.0 + way * (5.5 + (t % 2) * 0.5) - (0.5 if way < 0 else 0), 7.0 + (t % 2) * 0.5, way)]
+        pose(bottom=1.5 if abs(tilt) > 4 else 2.0, height=5.5 if abs(tilt) > 4 else 6.0,
+             tilt=tilt, scribble=t * 0.45, sweat=sweat)
+    loop = (lead, len(frames) - 1)
+    pose(arms=("up", "up"), eyes="shut", clutch=False)
+    pose(eyes="open", arms=("rest", "rest"), bottom=1.5, clutch=False)
+    pose(eyes="open", arms=("rest", "rest"), clutch=False)
+    return {"fps": 12, "frames": frames, "loop": loop}
+
+
+CLOUD = [".....#####......",
+         "...#########.##.",
+         "..##############",
+         ".###############",
+         "################",
+         ".##############."]
+BOLT = [".##",
+        "##.",
+        ".#.",
+        "##.",
+        "#.."]
+
+
+def storm_cloud(f, x, y, lit=False):
+    """A little storm cloud with its bottom left at (x, y): gray with a
+    darker underside, or lit cream in a flash of lightning."""
+    cells = sprite_cells(CLOUD, x, y)
+    under = {c for c in cells if (c[0], c[1] - 0.5) not in cells}
+    fill(f, cells - under, CREAM if lit else GRAY)
+    fill(f, under, CREAM if lit else GRAY_DARK)
+    if lit:
+        glow(f, cells, 1.0)
+
+
+def rain(f, x0, x1, top, bottom, t):
+    """Rain as dots falling from a cloud's underside at `top` down to
+    `bottom`, a column every unit and a half, `t` frames on."""
+    k, x = 0, x0
+    while x < x1:
+        for j in range(3):
+            y = top - 0.5 - ((t + 3 * k) % 6) * 0.5 - j * 3.0
+            if y > bottom:
+                dot(f, x, y, PALE_BLUE)
+        x += 1.5
+        k += 1
+
+
+def cloud_gathering(f, x, y):
+    """The cloud coming or going, in dots."""
+    for cx, cy in sprite_cells(CLOUD, x, y):
+        if round(cx * 2) % 2 == 0 and round(cy * 2) % 2 == 0:
+            dot(f, cx, cy, GRAY)
+
+
+def act_brainstorm():
+    """A brainstorm, as it says: a little storm cloud over Clawd's head
+    raining on it as it thinks in the Code tab's pose, and now and then a
+    flash of lightning that makes it jump."""
+    frames = []
+    cx, cy = 0.0, 10.0
+
+    def think(t, **kw):
+        f = Frame()
+        thinker(f, **kw)
+        storm_cloud(f, cx, cy)
+        rain(f, cx + 1.0, cx + 8.0, cy, 7.5, t)
+        frames.append(f)
+
+    def jump(t, lift, flash):
+        f = Frame()
+        head = clawd(f, lift=lift, eyes="wide", arms=("up", "up"), height=6.5 if lift else 6.0)
+        storm_cloud(f, cx, cy, lit=flash)
+        rain(f, cx + 1.0, cx + 8.0, cy, head.top, t)
+        if flash:
+            f.sprite(BOLT, cx + 8.5, cy - 2.5, {"#": AMBER})
+        frames.append(f)
+
+    f = Frame(); clawd(f); frames.append(f)
+    f = Frame(); clawd(f, eyes="up"); cloud_gathering(f, cx, cy); frames.append(f)
+    f = Frame(); clawd(f, eyes="up"); storm_cloud(f, cx, cy); frames.append(f)
+    think(0, eye_up=True)
+    lead = len(frames)
+    for t in range(36):
+        if t in (20, 21):
+            jump(t, 1.5 if t == 20 else 1.0, flash=True)
+        elif t in (22, 23):
+            jump(t, 0.5 if t == 22 else 0.0, flash=False)
+        else:
+            think(t, eye_up=t % 12 < 8, rub=t // 3 % 2 == 1, blink=t == 30)
+    loop = (lead, len(frames) - 1)
+    f = Frame(); clawd(f, eyes="up"); storm_cloud(f, cx, cy); frames.append(f)
+    f = Frame(); clawd(f); cloud_gathering(f, cx, cy); frames.append(f)
+    f = Frame(); clawd(f); frames.append(f)
+    return {"fps": 12, "frames": frames, "loop": loop}
+
+
 # MARK: Detective
 
 TOP_HAT = ["...lllllllll...",
@@ -2391,7 +2618,7 @@ def act_sparkler():
 # laptop on a little table beside it, the screen's light thrown back on its
 # face as the film draws light: a halftone of dots, thickest by the screen.
 BLUE_LIGHT = "#6B64B4"
-SCREEN_GLOW = "#D8E8FF"
+SCREEN_GLOW = PALE_BLUE
 
 
 def recliner(f, dots=0):
@@ -2896,6 +3123,7 @@ def act_board_unpin(row):
 ACTIONS = {
     "laptop": act_laptop, "headphones": act_headphones, "idea": act_idea, "sunglasses": act_sunglasses, "bubbles": act_bubbles,
     "love": act_love, "dizzy": act_dizzy, "confetti": act_confetti, "thinking": act_thinking,
+    "pencil": act_pencil, "stumped": act_stumped, "brainstorm": act_brainstorm,
     "detective": act_detective, "hardhat": act_hardhat, "sailboat": act_sailboat, "calling": act_calling,
     "reading": act_reading, "yawn": act_yawn, "skateboard": act_skateboard, "gaming": act_gaming,
     "wizard": act_wizard, "guitar": act_guitar, "kite": act_kite, "sparkler": act_sparkler,

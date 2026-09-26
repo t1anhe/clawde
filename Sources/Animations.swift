@@ -84,7 +84,8 @@ enum Animations {
     /// shows them: what goes with Claude, what goes with you, and what's
     /// just for fun.
     static let groups: [(title: String, actions: [(name: String, title: String)])] = [
-        ("With Claude", [("laptop", "Typing"), ("thinking", "Thinking"), ("idea", "Idea"), ("detective", "Detective"),
+        ("With Claude", [("laptop", "Typing"), ("thinking", "Thinking"), ("pencil", "Pencil"), ("stumped", "Stumped"),
+                         ("brainstorm", "Brainstorm"), ("idea", "Idea"), ("detective", "Detective"),
                          ("hardhat", "Hard Hat"), ("calling", "Calling You"), ("mailbox", "Posting a Letter"),
                          ("confetti", "Confetti"), ("sunglasses", "Sunglasses")]),
         ("With You", [("gaming", "Gaming"), ("headphones", "Headphones"), ("reading", "Reading"), ("browsing", "Browsing"),

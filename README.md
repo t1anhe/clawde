@@ -16,7 +16,7 @@ A little Clawd who lives on your Mac, just above the Dock, and acts out what you
 
 | Claude is… | Clawd… |
 | --- | --- |
-| thinking | ponders with a thought bubble |
+| thinking | ponders with a thought bubble, and on a long think takes turns at tapping a pencil on its chin, clutching its head >\_< and standing in its own little brainstorm |
 | starting to work | has an idea 💡, then pulls out its laptop and types |
 | looking things up (reads, searches) | puts on a top hat and peers through a magnifying glass |
 | changing lots of code | puts on a hard hat and swings a wrench |
@@ -37,7 +37,7 @@ A little Clawd who lives on your Mac, just above the Dock, and acts out what you
 - **Sitting still** for a while: blows bubbles. **Away** for five minutes: naps. **Back** after ten: a heart and a welcome.
 - **Two hours without a break**: gets dizzy and tells you to stretch. **Late at night**: yawns in a nightcap. **At the weekend**: goes skateboarding.
 
-**Always.** Its eyes follow your pointer. It paces about a little, and you can drag it, throw it (hard enough and it lands dizzy) or poke it for a hop and a heart. Right-click it or use the menu-bar icon to make it perform any of its 23 actions, resize it, put it to sleep, have it open at login or run a demo of everything above.
+**Always.** Its eyes follow your pointer. It paces about a little, and you can drag it, throw it (hard enough and it lands dizzy) or poke it for a hop and a heart. Right-click it or use the menu-bar icon to make it perform any of its 26 actions, resize it, put it to sleep, have it open at login or run a demo of everything above.
 
 ![Every action, at once](docs/actions.gif)
 
