@@ -32,7 +32,8 @@ final class ClaudeWatcher {
         /// Its transcript's name: Claude Code's session ID.
         var id: String
         var project: String
-        /// What it's called: its title, or else what it was last asked, cut short.
+        /// What it's called: its title, or else what it was last asked, cut
+        /// short; empty while it's neither.
         var title: String
         var state: ClaudeState
         /// What it's waiting on you for, while `state` is `.waiting`.
@@ -49,6 +50,8 @@ final class ClaudeWatcher {
         /// What Claude last said, cut short.
         var reply: String?
         var updated: Date
+        /// "project · title", or just the project while it has no title.
+        var label: String { title.isEmpty ? project : "\(project) · \(title)" }
     }
 
     /// What a transcript's newest turn entry says, read again only when the
@@ -406,7 +409,7 @@ final class ClaudeWatcher {
                 }
                 if need != nil { state = .waiting }
                 guard now.timeIntervalSince(modified) < lifetime(of: tail.last, in: state) else { continue }
-                let title = tail.title ?? tail.prompt.map { clip($0, 30) } ?? tail.project
+                let title = tail.title ?? tail.prompt.map { clip($0, 30) } ?? ""
                 found.append(Session(id: id, project: tail.project, title: title, state: state, need: need,
                                      interrupted: tail.interrupted, mode: mode(of: tail.tools), shipped: tail.shipped,
                                      prompt: tail.prompt, reply: tail.reply, updated: modified))

@@ -126,7 +126,7 @@ if arguments.count >= 2, arguments[1] == "--claude-state" {
         let mode = session.state == .working ? " (\(session.mode))" : ""
         let need = session.need.map { " needing \($0)" } ?? ""
         let ships = session.shipped.isEmpty ? "" : ", shipped \(session.shipped.joined(separator: " "))"
-        print("\(session.project) · \(session.title) [\(session.id.prefix(8))]: \(session.state)\(mode)\(need)\(ships)")
+        print("\(session.label) [\(session.id.prefix(8))]: \(session.state)\(mode)\(need)\(ships)")
     }
     let states = Set(sessions.map(\.state))
     print("=> \([ClaudeState.waiting, .working, .thinking].first { states.contains($0) } ?? .idle)")

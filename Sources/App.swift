@@ -540,21 +540,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard followsClaude, demo == nil, !boardDemo else { return }
         switch event {
         case .started(let session):
-            log("started: \(session.project) · \(session.title)")
+            log("started: \(session.label)")
             board.started(Self.entry(session))
         case .needsYou(let session):
-            log("needs you: \(session.project) · \(session.title): \(session.need.map { "\($0)" } ?? "?")")
+            log("needs you: \(session.label): \(session.need.map { "\($0)" } ?? "?")")
             board.started(Self.entry(session))
             var wait = 0.0
             if case .permission = session.need { wait = 8 }
             remind(session, after: wait)
             remind(session, after: wait + 180, again: true)
         case .finished(let session, let said):
-            log("finished: \(session.project) · \(session.title)\(session.interrupted ? " (interrupted)" : said == nil ? "" : " (with its last words)")")
+            log("finished: \(session.label)\(session.interrupted ? " (interrupted)" : said == nil ? "" : " (with its last words)")")
             if !session.interrupted {
                 let last = said.map { " Its last words: \"\(ClaudeWatcher.clip($0, 240))\"" } ?? ""
                 announce("[event] Claude Code just finished in \(Self.name(of: session)).\(last) Tell the user it's done, in one short line.",
-                         plainly: "\(session.project) · \(session.title) is done!")
+                         plainly: "\(session.label) is done!")
             }
             board.finished(session.id)
         }
@@ -574,7 +574,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// A session as Clawd's Brain hears of it.
     private static func name(of session: ClaudeWatcher.Session) -> String {
-        session.title == session.project ? "the \(session.project) project" : "\"\(session.title)\" (in \(session.project))"
+        session.title.isEmpty ? "the \(session.project) project" : "\"\(session.title)\" (in \(session.project))"
     }
 
     private static let debug = ProcessInfo.processInfo.environment["CLAWD_DEBUG"] != nil
@@ -592,7 +592,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                   let now = self.watcher.sessions.first(where: { $0.id == session.id }), let need = now.need,
                   need == session.need
             else { return }
-            let name = "\(now.project) · \(now.title)", called = Self.name(of: now)
+            let name = now.label, called = Self.name(of: now)
             var line: String, note: String
             switch need {
             case .permission(let what):

@@ -471,7 +471,9 @@ final class Board {
         let projectLine = BoardFont.line(project)
         pixels += projectLine.lit.map { ($0.x + x, $0.y, .project) }
         x += projectLine.width
-        let title = entry.title.isEmpty || entry.title == entry.project ? "" : entry.title
+        // Its title, whatever it is (the same as the project's name, even);
+        // none while the session has none yet.
+        let title = entry.title
         if !title.isEmpty {
             let middle = BoardFont.xMiddle
             for dx in 0..<dotSize {
