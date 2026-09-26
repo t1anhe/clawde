@@ -2196,6 +2196,160 @@ def act_sparkler():
     return {"fps": 12, "frames": frames, "loop": loop}
 
 
+# MARK: Browsing
+
+# While you browse, Clawd sinks into a plush blue recliner and watches a
+# laptop on a little table beside it, the screen's light thrown back on its
+# face as the film draws light: a halftone of dots, thickest by the screen.
+BLUE_LIGHT = "#6B64B4"
+SCREEN_GLOW = "#D8E8FF"
+
+
+def recliner(f, dots=0):
+    """The recliner, facing right: a thick back leaning back behind Clawd,
+    a rolled pillow on top, a deep seat on a skirt and little wooden feet.
+    `dots` 1 or 2 draws it coming or going (2 thinner)."""
+    c = rect_cells
+    back, edge = set(), set()
+    for k in range(18):
+        x = -1.0 - (k // 3) * 0.5
+        back |= c(x - 3.0, 3.5 + k * 0.5, 3.0, 0.5)
+        edge |= c(x - 0.5, 3.5 + k * 0.5, 0.5, 0.5)
+    parts = [(back, BLUE), (edge, BLUE_LIGHT),
+             (c(-6.5, 12.5, 3.5, 1.0) | c(-6.0, 13.5, 2.5, 0.5), BLUE), (c(-6.0, 12.5, 2.5, 0.5), BLUE_LIGHT),
+             (c(-3.5, 2.5, 12.5, 1.5), BLUE), (c(-3.5, 3.5, 12.5, 0.5), BLUE_LIGHT),
+             (c(-3.5, 1.0, 12.5, 1.5), BLUE_DARK), (c(-3.0, 0.0, 1.0, 1.0) | c(7.5, 0.0, 1.0, 1.0), WOOD_DARK)]
+    for cells, color in parts:
+        draw_cells(f, cells, color, dots, back=True)
+
+
+def armrest(f, dots=0):
+    """The near armrest, a padded roll in front of Clawd's lower half."""
+    c = rect_cells
+    for cells, color in ((c(-3.0, 2.5, 11.5, 3.0) | c(-2.5, 5.5, 10.5, 0.5), BLUE),
+                         (c(-2.5, 5.5, 10.5, 0.5), BLUE_LIGHT),
+                         (c(-3.0, 2.5, 11.5, 0.5) | c(8.0, 3.0, 0.5, 2.5), BLUE_DARK)):
+        draw_cells(f, cells, color, dots)
+
+
+def side_table(f, dots=0):
+    """The little wooden table the laptop goes on."""
+    c = rect_cells
+    draw_cells(f, c(11.5, 0.0, 0.5, 4.0) | c(15.5, 0.0, 0.5, 4.0), WOOD_DARK, dots)
+    draw_cells(f, c(11.0, 4.0, 5.5, 0.5), WOOD, dots)
+
+
+def browsing_laptop(f, open_=6, drop=0.0, poof=False):
+    """The laptop on the table, turned to Clawd: hinged at the far end, its
+    lid leaning back `open_` steps (0 shut), `drop` units above the table
+    on its way down; `poof` is it going in dots."""
+    y = 4.5 + drop
+    base = rect_cells(11.5, y, 3.5, 0.5)
+    lid = set()
+    for k in range(open_):
+        lid |= rect_cells(15.0 + k * 0.5, y + 0.5 + k * 0.5, 0.5, 1.0)
+    if not open_:
+        base |= rect_cells(11.5, y + 0.5, 3.5, 0.5)
+    draw_cells(f, base | lid, GRAY, 1 if poof else 0)
+
+
+def draw_cells(f, cells, color, dots=0, back=False):
+    """Cells filled, or as the film's dots (every one, or every other)."""
+    if not dots:
+        fill(f, cells, color, back)
+        return
+    for cx, cy in sorted(cells):
+        if dots == 1 or round((cx + cy) * 2) % 2 == 0:
+            dot(f, cx, cy, color, back)
+
+
+def screen_light(f, phase, bright=False):
+    """The screen's light thrown back at Clawd: dots in the air between the
+    lid and Clawd's face, thickest by the screen, shifting as the page
+    scrolls (`phase`), more of them for a bright page; and a few on the side
+    of Clawd's face turned to it."""
+    for r, x in enumerate((14.0, 13.5, 13.0, 12.5, 12.0, 11.5, 11.0, 10.5)):
+        for y in (6.0, 6.5, 7.0, 7.5, 8.0, 8.5):
+            step = ((1, 2, 2, 3, 3, 3, 4, 4) if bright else (2, 2, 3, 3, 4, 4, 5, 6))[r]
+            if (round(y * 2) + phase + r) % step == 0:
+                dot(f, x, y, SCREEN_GLOW)
+    face = [(7.5, 7.0), (7.0, 6.5), (7.5, 8.5), (6.5, 7.5)]
+    if bright:
+        face += [(7.0, 8.0), (6.0, 6.5), (7.5, 6.0)]
+    for x, y in face:
+        dot(f, x, y, SCREEN_GLOW)
+
+
+def act_browsing():
+    frames = []
+
+    def pose(chair=True, chair_dots=0, arm=True, laptop=None, glow=None, bright=False, hold_=1, **body):
+        """`laptop` is (open_, drop, poof) or None; `glow` the light's phase
+        or None; `arm` leaves out the armrest while Clawd's standing before the chair."""
+        f = Frame()
+        if chair:
+            recliner(f, chair_dots)
+            side_table(f, chair_dots)
+        clawd(f, **body)
+        if chair and arm:
+            armrest(f, chair_dots)
+        if laptop is not None:
+            browsing_laptop(f, *laptop)
+        if glow is not None:
+            screen_light(f, glow, bright)
+        frames.extend([f] * hold_)
+        return f
+
+    sit = dict(side=True, lift=2.5, arms=(None, 3.0))
+    # Up come the chair and the table in dots; Clawd turns, dips and hops
+    # in, sinks back; the laptop drops onto the table and opens, lighting up.
+    pose(chair=False)
+    pose(chair_dots=2, eyes="up")
+    pose(chair_dots=1, eyes="up")
+    pose(side=True, eyes="wide", arms=(None, "rest"), arm=False, hold_=2)
+    pose(side=True, bottom=1.5, eyes="shut", arms=(None, "rest"), arm=False)
+    pose(side=True, lift=3.5, height=6.5, eyes="glee", arms=(None, "up"))
+    pose(side=True, lift=2.5, height=5.5, eyes="shut", arms=(None, 3.0))
+    pose(**sit, tilt=6.0, eyes="content")
+    pose(**sit, tilt=12.0, eyes="content", hold_=2)
+    pose(**sit, tilt=12.0, laptop=(0, 3.0, False), eyes="up")
+    pose(**sit, tilt=12.0, laptop=(0, 0.0, False), eyes="open")
+    pose(**sit, tilt=12.0, laptop=(3, 0.0, False), eyes="open")
+    pose(**sit, tilt=12.0, laptop=(6, 0.0, False), glow=0, bright=True, eyes="wide", hold_=2)
+    lead = len(frames)
+
+    # Watching: still, the light shifting as the page scrolls; a blink; a
+    # laugh that shakes it; a blink; something surprising on a bright page.
+    def watch(n, start):
+        for t in range(start, start + n):
+            pose(**sit, tilt=12.0, laptop=(6, 0.0, False), glow=t // 4, look=(0.0, -0.5),
+                 eyes="shut" if t % 18 == 11 else "open")
+
+    watch(18, 0)
+    for t in range(18, 24):
+        pose(**sit, tilt=12.0, laptop=(6, 0.0, False), glow=t // 4, look=(0.0, -0.5), eyes="glee",
+             height=5.5 if t % 2 else 6.0)
+    watch(18, 24)
+    for t in range(42, 48):
+        pose(**sit, tilt=12.0, laptop=(6, 0.0, False), glow=t // 4, bright=True, look=(0.0, -0.5), eyes="wide")
+    watch(12, 48)
+    loop = (lead, len(frames) - 1)
+
+    # Done: the lid folds shut, the laptop goes in a puff; Clawd sits up and
+    # hops out, the chair and table puff away under it; it lands.
+    pose(**sit, tilt=12.0, laptop=(3, 0.0, False), eyes="content")
+    pose(**sit, tilt=12.0, laptop=(0, 0.0, False), eyes="content")
+    pose(**sit, tilt=12.0, laptop=(0, 0.0, True), eyes="content")
+    pose(**sit, tilt=6.0, eyes="open")
+    pose(side=True, lift=2.5, bottom=1.5, eyes="shut", arms=(None, 3.0))
+    pose(side=True, lift=3.5, height=6.5, eyes="glee", arms=(None, "up"), chair_dots=1)
+    pose(side=True, lift=1.5, eyes="glee", arms=(None, "rest"), chair_dots=2)
+    pose(chair=False, side=True, bottom=1.5, eyes="glee", arms=(None, "rest"))
+    pose(chair=False, eyes="content", hold_=2)
+    pose(chair=False)
+    return {"fps": 12, "frames": frames, "loop": loop}
+
+
 # MARK: Mailbox
 
 # Claude's commits and pushes go off in the post: a gray rural mailbox on a
@@ -2556,7 +2710,7 @@ ACTIONS = {
     "detective": act_detective, "hardhat": act_hardhat, "sailboat": act_sailboat, "calling": act_calling,
     "reading": act_reading, "yawn": act_yawn, "skateboard": act_skateboard, "gaming": act_gaming,
     "wizard": act_wizard, "guitar": act_guitar, "kite": act_kite, "sparkler": act_sparkler,
-    "mailbox": act_mailbox,
+    "mailbox": act_mailbox, "browsing": act_browsing,
     "board-write": act_board_write, "board-pin": lambda: act_board_write(pin=True),
     **{f"board-erase-{row + 1}": (lambda row=row: act_board_erase(row)) for row in range(3)},
     **{f"board-unpin-{row + 1}": (lambda row=row: act_board_unpin(row)) for row in range(3)},

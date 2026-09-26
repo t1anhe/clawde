@@ -40,6 +40,34 @@ final class Senses {
         onAppSwitch?(left, app)
     }
 
+    // MARK: Browsing
+
+    /// Web browsers everyone knows, by bundle identifier.
+    private static let browsers: Set<String> = [
+        "com.apple.Safari", "com.apple.SafariTechnologyPreview", "com.google.Chrome", "com.google.Chrome.beta",
+        "com.google.Chrome.dev", "com.google.Chrome.canary", "org.chromium.Chromium", "company.thebrowser.Browser",
+        "company.thebrowser.dia", "org.mozilla.firefox", "org.mozilla.firefoxdeveloperedition", "org.mozilla.nightly",
+        "com.microsoft.edgemac", "com.microsoft.edgemac.Beta", "com.microsoft.edgemac.Dev", "com.brave.Browser",
+        "com.operasoftware.Opera", "com.operasoftware.OperaGX", "com.vivaldi.Vivaldi", "app.zen-browser.zen",
+        "com.kagi.kagimacOS", "com.duckduckgo.macos.browser", "ai.perplexity.comet", "org.torproject.torbrowser",
+        "net.waterfox.waterfox", "io.gitlab.librewolf-community",
+    ]
+    /// Your default browser, looked up again once a minute.
+    private var defaultBrowser: (id: String?, checked: Date) = (nil, .distantPast)
+
+    /// Whether the app in front is a web browser: a well-known one, the one
+    /// you've made your default, or one that calls itself a browser.
+    var isBrowserInFront: Bool {
+        let bundle = frontBundle
+        guard !bundle.isEmpty, bundle != Bundle.main.bundleIdentifier else { return false }
+        if Self.browsers.contains(bundle) || bundle.localizedCaseInsensitiveContains("browser") { return true }
+        if Date().timeIntervalSince(defaultBrowser.checked) > 60, let web = URL(string: "https://example.com") {
+            let app = NSWorkspace.shared.urlForApplication(toOpen: web)
+            defaultBrowser = (app.flatMap { Bundle(url: $0)?.bundleIdentifier }, Date())
+        }
+        return bundle == defaultBrowser.id
+    }
+
     /// Seconds since the last key press, click or mouse move anywhere.
     var idleSeconds: Double {
         CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: CGEventType(rawValue: ~0)!)

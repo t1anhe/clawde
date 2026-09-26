@@ -33,10 +33,11 @@ A little Clawd who lives on your Mac, just above the Dock, and acts out what you
 - **Playing a game** (anything the Mac files as a game, anything from your Steam library, or Minecraft): a sofa and an old TV appear and Clawd plays along.
 - **Listening to music** in Music or Spotify: headphones on, grooving.
 - **Reading or coding** in Preview, Books or VS Code: glasses and a book.
+- **Browsing the web** in Safari, Chrome, Arc, Firefox, Edge or your default browser: Clawd sinks into a blue recliner and watches a laptop on a little table, the screen's light on its face.
 - **Sitting still** for a while: blows bubbles. **Away** for five minutes: naps. **Back** after ten: a heart and a welcome.
 - **Two hours without a break**: gets dizzy and tells you to stretch. **Late at night**: yawns in a nightcap. **At the weekend**: goes skateboarding.
 
-**Always.** Its eyes follow your pointer. It paces about a little, and you can drag it, throw it (hard enough and it lands dizzy) or poke it for a hop and a heart. Right-click it or use the menu-bar icon to make it perform any of its 22 actions, resize it, put it to sleep, have it open at login or run a demo of everything above.
+**Always.** Its eyes follow your pointer. It paces about a little, and you can drag it, throw it (hard enough and it lands dizzy) or poke it for a hop and a heart. Right-click it or use the menu-bar icon to make it perform any of its 23 actions, resize it, put it to sleep, have it open at login or run a demo of everything above.
 
 ![Every action](docs/actions.png)
 

@@ -58,14 +58,14 @@ final class Pet {
     /// What Clawd would rather be doing, the most pressing first: along with
     /// Claude working (typing, investigating or building), thinking while
     /// Claude thinks, calling you while it waits on you; then gaming while
-    /// you play, grooving while music plays, reading while you read or code;
-    /// or its own thing.
-    enum Want { case work, investigate, build, think, call, game, music, read, free }
+    /// you play, grooving while music plays, reading while you read or code,
+    /// lounging with a laptop while you browse; or its own thing.
+    enum Want { case work, investigate, build, think, call, game, music, read, browse, free }
 
     /// What Clawd wants when it's only keeping you company, and the clips it
     /// holds for that.
-    private static let company: Set<Want> = [.game, .music, .read, .free]
-    private static let companyClips: Set<String> = ["gaming", "headphones", "reading"]
+    private static let company: Set<Want> = [.game, .music, .read, .browse, .free]
+    private static let companyClips: Set<String> = ["gaming", "headphones", "reading", "browsing"]
 
     /// What a chat has Clawd doing: listening while you type or it speaks,
     /// thinking while it waits for its reply, talking while the reply streams.
@@ -140,6 +140,7 @@ final class Pet {
     private var userIdle = 0.0
     private var musicPlaying = false
     private var reading = false
+    private var browsing = false
     private var gaming = false
     /// When Clawd may next yawn late at night, or go skateboarding at the
     /// weekend; and where a ride on the board is headed.
@@ -300,11 +301,12 @@ final class Pet {
     /// away Clawd welcomes you, sitting still it blows bubbles, after two
     /// hours without a break it reels and tells you to stretch; late at
     /// night it yawns, at the weekend it goes skateboarding.
-    func sense(idle: Double, music: Bool, reading: Bool, gaming: Bool) {
+    func sense(idle: Double, music: Bool, reading: Bool, gaming: Bool, browsing: Bool = false) {
         let before = userIdle
         userIdle = idle
         musicPlaying = music
         self.reading = reading
+        self.browsing = browsing
         self.gaming = gaming
         if idle >= awayAfter { busySince = nil }
         guard !isCarried, !isAirborne else { return }
@@ -359,7 +361,9 @@ final class Pet {
             // Reading and playing go with you being there; the music plays on
             // without you.
             let here = userIdle < awayAfter
-            return gaming && here ? .game : musicPlaying ? .music : reading && here ? .read : .free
+            if gaming && here { return .game }
+            if musicPlaying { return .music }
+            return reading && here ? .read : browsing && here ? .browse : .free
         }
     }
 
@@ -740,7 +744,7 @@ final class Pet {
         default:
             let name = Self.clips.first { $0.value == want }?.key ?? ""
             // The TV goes up on the roomier side too.
-            if want == .game { faceMiddle() }
+            if want == .game || want == .browse { faceMiddle() }
             behavior = Animations.all[name] != nil ? .hold(name, since: clock) : .idle(until: clock + 1)
         }
     }
@@ -752,7 +756,7 @@ final class Pet {
     /// The clips held for as long as what Clawd wants lasts.
     private static let clips: [String: Want] = [
         "detective": .investigate, "hardhat": .build, "thinking": .think, "calling": .call,
-        "gaming": .game, "headphones": .music, "reading": .read,
+        "gaming": .game, "headphones": .music, "reading": .read, "browsing": .browse,
     ]
 
     /// What keeps a held clip going.

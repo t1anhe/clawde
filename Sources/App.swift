@@ -39,7 +39,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var gameSeen = Date.distantPast
     /// A run-through of everything Clawd reacts to, its made-up senses
     /// standing in for the real ones and for Claude while it lasts.
-    private var demo: (music: Bool, reading: Bool, gaming: Bool, idle: Double)?
+    private var demo: (music: Bool, reading: Bool, gaming: Bool, browsing: Bool, idle: Double)?
     private var demoTimer: Timer?
 
     private var followsClaude: Bool {
@@ -141,7 +141,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         senseTicks += 1
         if senses.isGameInFront { gameSeen = Date() }
         pet.sense(idle: senses.idleSeconds, music: musicMisses < 2, reading: Self.readingApps.contains(senses.frontBundle),
-                  gaming: Date().timeIntervalSince(gameSeen) < 10)
+                  gaming: Date().timeIntervalSince(gameSeen) < 10, browsing: senses.isBrowserInFront)
         syncBoard()
     }
 
@@ -357,7 +357,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// playing, sitting still, up late, at the weekend, at it too long, away
     /// and back.
     private func startDemo() {
-        demo = (false, false, false, 0)
+        demo = (false, false, false, false, 0)
         pet.setClaude(.idle, quietly: true)
         board.clear()
         let session = { (needs: Bool) in Board.Entry(id: "demo", project: "clawde", title: "Demo", needsYou: needs) }
@@ -373,7 +373,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             (7, "You answered", { [weak self] in self?.pet.setClaude(.working, mode: .typing); self?.board.started(session(false)) }),
             (5, "Claude is done", { [weak self] in self?.pet.setClaude(.idle); self?.board.finished("demo") }),
             (8, "Music off, you're in VS Code", { [weak self] in self?.demo?.music = false; self?.demo?.reading = true }),
-            (9, "You're playing a game", { [weak self] in self?.demo?.reading = false; self?.demo?.gaming = true }),
+            (9, "You're browsing the web", { [weak self] in self?.demo?.reading = false; self?.demo?.browsing = true }),
+            (9, "You're playing a game", { [weak self] in self?.demo?.browsing = false; self?.demo?.gaming = true }),
             (10, "You're sitting still", { [weak self] in self?.demo?.gaming = false; self?.demo?.idle = 95 }),
             (6, "It's late at night…", { [weak self] in self?.demo?.idle = 0; self?.pet.perform("yawn") }),
             (5, "It's the weekend", { [weak self] in self?.pet.perform("skateboard") }),
@@ -397,7 +398,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 guard let self, var demo = self.demo else { return }
                 if demo.idle > 0, demo.idle < 700 { demo.idle += 1 }
                 self.demo = demo
-                self.pet.sense(idle: demo.idle, music: demo.music, reading: demo.reading, gaming: demo.gaming)
+                self.pet.sense(idle: demo.idle, music: demo.music, reading: demo.reading, gaming: demo.gaming,
+                               browsing: demo.browsing)
             }
         }
         RunLoop.main.add(timer, forMode: .common)

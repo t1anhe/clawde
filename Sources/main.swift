@@ -164,7 +164,7 @@ if arguments.count == 2, arguments[1] == "--simulate" {
         let pet = Pet(unit: 3)
         pet.start(showing: false)
         var idle = 0.0, music = false
-        var reading = false, gaming = false
+        var reading = false, gaming = false, browsing = false
         let script: [(Double, String, () -> Void)] = [
             (2, "music on", { music = true }),
             (10, "Claude asked: thinking", { pet.setClaude(.thinking) }),
@@ -178,7 +178,8 @@ if arguments.count == 2, arguments[1] == "--simulate" {
             (66, "you answered: working", { pet.setClaude(.working) }),
             (72, "Claude done", { pet.setClaude(.idle) }),
             (84, "music off, VS Code in front", { music = false; reading = true }),
-            (92, "a game in front", { reading = false; gaming = true }),
+            (88, "a browser in front", { reading = false; browsing = true }),
+            (92, "a game in front", { browsing = false; gaming = true }),
             (102, "game left in front, you step away", { idle = 290 }),
             (116, "", { idle = 720 }),
             (120, "back after 12 min, still in the game", { idle = 0 }),
@@ -196,7 +197,7 @@ if arguments.count == 2, arguments[1] == "--simulate" {
                     act()
                 }
                 if idle > 0, idle < 700 { idle += 1 }
-                pet.sense(idle: idle, music: music, reading: reading, gaming: gaming)
+                pet.sense(idle: idle, music: music, reading: reading, gaming: gaming, browsing: browsing)
             }
         }
         // Unseen, the app would be napped and its timers put off, the senses
