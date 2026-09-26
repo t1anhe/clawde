@@ -39,7 +39,7 @@ A little Clawd who lives on your Mac, just above the Dock, and acts out what you
 
 **Always.** Its eyes follow your pointer. It paces about a little, and you can drag it, throw it (hard enough and it lands dizzy) or poke it for a hop and a heart. Right-click it or use the menu-bar icon to make it perform any of its 23 actions, resize it, put it to sleep, have it open at login or run a demo of everything above.
 
-![Every action](docs/actions.png)
+![Every action, at once](docs/actions.gif)
 
 ## Install
 
@@ -57,6 +57,8 @@ Clawde needs macOS 14 or later and runs on Apple silicon and Intel Macs. It live
 ### Chatting with Clawd (optional)
 
 Turn on **Connect to Claude** in the menu and double-click Clawd to talk to it. Connected, Clawd also puts Claude Code's news in its own words (a session wants your OK, asks you something, is done), mutters now and then while Claude works, and teases you while you game; **Chattiness** sets how often. Chat runs through your own [Claude Code](https://claude.com/claude-code) command-line tool (`claude` must be installed and signed in) with a light model, and uses your own plan. The chat box shows what you two have said, and what Clawd told you on its own, so you can scroll back to a bubble you missed. Clawd keeps a few notes about you in `~/Library/Application Support/Clawde/notes.md` and the chat in `chat.jsonl` beside them; the menu can open the notes or make Clawd forget everything.
+
+Switch it off whenever you like: Clawde then never calls Claude, so it uses nothing from your plan, and Clawd still passes on Claude Code's news in plain, set words. Switch it back on and Clawd picks up the same conversation and its notes where it left off, told how long it was switched off.
 
 ## Build from source
 
