@@ -300,7 +300,12 @@ if arguments.count >= 3, arguments[1] == "--chat" {
             .init(who: .you, text: "haha nice", at: 0),
             .init(who: .clawd, text: "Want me to shout when it's done? I'll be right here, pretending to type.", at: 0),
         ]
-        for extra in arguments.dropFirst(3) {
+        // --chat out.png --from transcript.jsonl: the history a conversation starts it with.
+        if arguments.count == 5, arguments[3] == "--from" {
+            entries = ChatLog.said(in: URL(fileURLWithPath: arguments[4]))
+            for entry in entries { print("\(entry.who.rawValue): \(entry.text.count) characters") }
+        }
+        for extra in arguments.dropFirst(3) where !(arguments.count == 5 && arguments[3] == "--from") {
             let clawd = extra.hasPrefix("clawd: ")
             entries.append(.init(who: clawd ? .clawd : .you, text: String(extra.drop { $0 != " " }.dropFirst()), at: 0))
         }

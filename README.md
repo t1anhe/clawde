@@ -85,7 +85,7 @@ A few command-line switches help while working on it:
 | `Clawde --hooks [on\|off]` | adds or takes out Clawde's Claude Code hooks, or says whether they're in |
 | `Clawde --board-demo [white\|cork]` | puts made-up sessions up on the board and takes them down again |
 | `Clawde --tell "[event] …"` | sends one message to Clawd (its persona, a throwaway conversation) and prints the reply |
-| `Clawde --chat out.png` | draws the chat box with a made-up history |
+| `Clawde --chat out.png [--from file]` | draws the chat box with a made-up history, or the one a conversation's transcript starts it with |
 | `CLAWD_RECORD=folder Clawde …` | saves what Clawd and the board look like as PNGs, twelve a second |
 | `Clawde --games` | lists which running apps Clawd counts as games |
 | `Clawde --sheet out.png` | draws every built-in pose to one image |

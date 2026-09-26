@@ -474,8 +474,15 @@ enum ChatLog {
     /// not the notes Clawde sends it or what it says to those.
     static func start(from transcript: URL?) {
         guard !FileManager.default.fileExists(atPath: file.path) else { return }
+        let entries = transcript.map(said(in:)) ?? []
+        write(entries)
+        if entries.isEmpty, !FileManager.default.fileExists(atPath: file.path) { try? Data().write(to: file) }
+    }
+
+    /// What you and Clawd said to each other in one of its conversations.
+    static func said(in transcript: URL) -> [Entry] {
         var entries: [Entry] = []
-        if let transcript, let text = try? String(contentsOf: transcript, encoding: .utf8) {
+        if let text = try? String(contentsOf: transcript, encoding: .utf8) {
             let dates = ISO8601DateFormatter()
             dates.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
             var answering = false, reply = "", replyAt = 0.0
@@ -512,8 +519,7 @@ enum ChatLog {
             }
             finishReply()
         }
-        write(entries)
-        if entries.isEmpty, !FileManager.default.fileExists(atPath: file.path) { try? Data().write(to: file) }
+        return entries
     }
 
     private static func write(_ entries: [Entry]) {
