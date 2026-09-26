@@ -34,6 +34,12 @@ enum Animations {
             return (ends + rounds * Double(loop.count)) / fps
         }
 
+        /// How many times round its loop a play `length` seconds long goes.
+        func rounds(of length: Double) -> Int {
+            guard let loop else { return 0 }
+            return max(1, Int(((length * fps - Double(loop.lowerBound + outro)) / Double(loop.count)).rounded()))
+        }
+
         /// How long a play that's been held going round its loop runs if let
         /// go of `t` seconds in: it finishes the time round it's on (or its
         /// first), then plays the outro; or, not `finishingRound`, goes

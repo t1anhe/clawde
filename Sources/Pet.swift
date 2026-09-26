@@ -143,10 +143,10 @@ final class Pet {
     private var browsing = false
     private var gaming = false
     /// When Clawd may next yawn late at night, or go skateboarding at the
-    /// weekend; and where a ride on the board is headed.
+    /// weekend; and a ride on the board: where it set off, which way, how far.
     private var nextYawn = 60.0
     private var nextSkate = 120.0
-    private var skateTo: CGFloat?
+    private var skate: (from: CGFloat, way: CGFloat, distance: CGFloat)?
     /// Claude has thought and is about to act: an idea first, then the laptop.
     private var ideaFirst = false
     /// Put to sleep from the menu: you coming back doesn't wake it.
@@ -162,9 +162,8 @@ final class Pet {
     /// goes skateboarding every twenty, while you're about and it's free.
     private let yawnEvery = 600.0
     private let skateEvery = 1200.0
-    /// How far from home a ride goes, in units, and how fast.
+    /// How far a ride on the board goes out, in units.
     private let skateRange: CGFloat = 18
-    private let skateSpeed: CGFloat = 12
     /// Seconds without touching the computer before you're sitting still
     /// (Clawd blows bubbles), away (it naps), or long gone (it welcomes you back).
     private let stillAfter = 90.0
@@ -396,7 +395,7 @@ final class Pet {
     func perform(_ name: String, seconds: Double? = nil) {
         guard let clip = Animations.all[name], !isCarried else { return }
         wake()
-        skateTo = nil
+        skate = nil
         behavior = .perform(name, since: clock, until: clock + clip.length(about: seconds ?? 6))
     }
 
@@ -587,9 +586,9 @@ final class Pet {
         case .perform(let name, let since, let until):
             if clock >= until {
                 behavior = .idle(until: clock + .random(in: 1...3))
-                skateTo = nil
+                skate = nil
             } else if name == "skateboard" {
-                ride(since: since, until: until, dt, minX: minX, maxX: maxX)
+                ride(since: since, until: until, minX: minX, maxX: maxX)
             }
         case .pack(let since, let cheers):
             if clock - since > WorkAnimation.outroSeconds {
@@ -680,7 +679,7 @@ final class Pet {
 
     /// Off to the board for a chore (straight into it if already there).
     private func go(to chore: Board.Chore) {
-        skateTo = nil
+        skate = nil
         behavior = .errand(chore)
     }
 
@@ -704,20 +703,39 @@ final class Pet {
         }
     }
 
-    /// Rolls along on the skateboard while its clip goes round its loop,
-    /// off toward the roomier side of home.
-    private func ride(since: Double, until: Double, _ dt: Double, minX: CGFloat, maxX: CGFloat) {
-        guard let clip = Animations.all["skateboard"], let loop = clip.loop,
-              loop.contains(clip.index(at: clock - since, of: until - since))
-        else { return }
-        if skateTo == nil {
-            let low = max(minX, home - skateRange * unit), high = min(maxX, home + skateRange * unit)
-            skateTo = x - low > high - x ? low : high
+    /// Rolls along on the skateboard for as long as its clip goes round its
+    /// loop: out toward the roomier side of where it got on for the first
+    /// half, then turning with a push and back for the second, so it ends
+    /// its ollie where it started. Each time round, a push off the ground
+    /// speeds it up and the glide after eases it down (see `rolled`).
+    private func ride(since: Double, until: Double, minX: CGFloat, maxX: CGFloat) {
+        guard let clip = Animations.all["skateboard"], clip.loop != nil else { return }
+        let progress = clip.loopProgress(at: clock - since, of: until - since)
+        guard progress > 0 else { return }
+        if skate == nil {
+            let low = max(minX, x - skateRange * unit), high = min(maxX, x + skateRange * unit)
+            skate = x - low > high - x ? (x, -1, x - low) : (x, 1, high - x)
         }
-        if let skateTo, abs(skateTo - x) > 1 {
-            facing = skateTo > x ? 1 : -1
-            x += facing * min(abs(skateTo - x), skateSpeed * unit * CGFloat(dt))
-        }
+        guard let skate else { return }
+        let rounds = clip.rounds(of: until - since)
+        let out = (rounds + 1) / 2, back = rounds - out
+        let done = Double(rounds) * progress
+        let round = min(Int(done), rounds - 1)
+        let part = Self.rolled(done - Double(round))
+        let along = round < out ? (Double(round) + part) / Double(out) : 1 - (Double(round - out) + part) / Double(back)
+        x = skate.from + skate.way * skate.distance * CGFloat(along)
+        facing = round < out ? skate.way : -skate.way
+    }
+
+    /// How much of one time round the skateboard's loop has been rolled
+    /// `phase` of the way through it: its first quarter is the push, the
+    /// speed rising from `coast` to full, then the glide eases it back down.
+    private static func rolled(_ phase: Double) -> Double {
+        let push = 0.25, coast = 0.4
+        let p = min(max(phase, 0), 1)
+        let pushed = p < push ? coast * p + (1 - coast) * p * p / (2 * push)
+            : push * (1 + coast) / 2 + (p - push) - (1 - coast) * (p - push) * (p - push) / (2 * (1 - push))
+        return pushed / ((1 + coast) / 2)
     }
 
     /// Takes up what Clawd wants to be doing; Claude setting to work after
