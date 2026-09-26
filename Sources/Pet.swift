@@ -43,7 +43,7 @@ final class Pet {
         /// Playing one of the bundled clips until then.
         case perform(String, since: Double, until: Double)
         /// Walking over to the board for a chore, or home again (no chore).
-        case errand(to: CGFloat, chore: Board.Chore?)
+        case errand(Board.Chore?)
         /// At the board, playing the chore's clip until then.
         case chore(Board.Chore, since: Double, until: Double)
         /// Going round a clip's loop since then for as long as its reason
@@ -206,7 +206,9 @@ final class Pet {
         view.pet = self
 
         let frame = (NSScreen.main ?? NSScreen.screens[0]).visibleFrame
-        x = frame.midX - size.width / 2
+        // CLAWD_START_X (0 to 1 across the screen) starts it somewhere else, for trying things out.
+        let across = ProcessInfo.processInfo.environment["CLAWD_START_X"].flatMap(Double.init) ?? 0.5
+        x = frame.minX + frame.width * CGFloat(across) - size.width / 2
         y = frame.minY
         home = x
     }
@@ -489,6 +491,7 @@ final class Pet {
         let minX = visible.minX - Renderer.padX(unit: unit)
         let maxX = visible.maxX - size.width + Renderer.padX(unit: unit)
         let ground = visible.minY
+        walkable = minX...max(minX, maxX)
 
         if isCarried {
             isAirborne = true
@@ -572,9 +575,19 @@ final class Pet {
             } else if step(toward: target, speed: walkSpeed * unit, dt) {
                 behavior = .idle(until: clock + .random(in: 2...6))
             }
-        case .errand(let spot, let chore):
-            // Never somewhere Clawd can't get to, or it would walk on for ever.
-            let target = min(max(spot, minX), maxX)
+        case .errand(let chore):
+            // Headed for where the board is now, looked up every frame, or for home;
+            // never somewhere Clawd can't get to, or it would walk on for ever.
+            var target = desk
+            if let chore {
+                guard let spot = board?.workSpot() else {
+                    board?.finish(chore)
+                    behavior = .idle(until: clock)
+                    break
+                }
+                target = spot - Renderer.padX(unit: unit) - 2 * unit
+            }
+            target = min(max(target, minX), maxX)
             if step(toward: target, speed: walkSpeed * unit, dt) {
                 x = target
                 if let chore { startChore(chore) } else { behavior = .idle(until: clock) }
@@ -583,7 +596,7 @@ final class Pet {
             guard let clip = Animations.all[chore.clip], clock < until else {
                 board?.finish(chore)
                 // The next one, or home.
-                if let next = board?.nextChore() { go(to: next) } else { behavior = .errand(to: home, chore: nil) }
+                if let next = board?.nextChore() { go(to: next) } else { behavior = .errand(nil) }
                 break
             }
             let t = clock - since
@@ -594,6 +607,9 @@ final class Pet {
                 go(to: chore)
             } else if want != .free {
                 take(want)
+            } else if abs(reachable(desk) - x) > paceRange * unit {
+                // Its desk moved beside the board, or back home once the board's gone.
+                behavior = .errand(nil)
             } else if clock > until {
                 if userIdle >= awayAfter {
                     // Nobody about: a nap till somebody is.
@@ -614,16 +630,25 @@ final class Pet {
         }
     }
 
-    /// Off to the board for a chore, or straight into it if already there.
+    /// Where Clawd works at its laptop (its window's x): beside the board
+    /// while the board's up, else home.
+    private var desk: CGFloat {
+        guard let left = board?.deskSpot else { return home }
+        return left - Renderer.padX(unit: unit) - 2 * unit
+    }
+
+    /// `x`, or the nearest place to it Clawd can walk to.
+    private func reachable(_ x: CGFloat) -> CGFloat {
+        min(max(x, walkable.lowerBound), walkable.upperBound)
+    }
+
+    /// Where Clawd's window can go along the ground, as of the last frame.
+    private var walkable: ClosedRange<CGFloat> = -.greatestFiniteMagnitude ... .greatestFiniteMagnitude
+
+    /// Off to the board for a chore (straight into it if already there).
     private func go(to chore: Board.Chore) {
         skateTo = nil
-        let target = chore.spot - Renderer.padX(unit: unit) - 2 * unit
-        if abs(target - x) < 1 {
-            x = target
-            startChore(chore)
-        } else {
-            behavior = .errand(to: target, chore: chore)
-        }
+        behavior = .errand(chore)
     }
 
     /// Turned to the board, the chore's clip playing for about as long as it wants.
@@ -633,14 +658,14 @@ final class Pet {
             behavior = .idle(until: clock)
             return
         }
-        facing = chore.facing
+        facing = board?.side ?? facing
         behavior = .chore(chore, since: clock, until: clock + clip.length(about: chore.seconds))
     }
 
     /// Whether Clawd is on its way to `chore` or doing it.
     private func isDoing(_ chore: Board.Chore) -> Bool {
         switch behavior {
-        case .errand(_, let on): return on == chore
+        case .errand(let on): return on == chore
         case .chore(let on, _, _): return on == chore
         default: return false
         }
@@ -672,8 +697,13 @@ final class Pet {
         }
         switch want {
         case .work:
-            // Face the board while it's up, the laptop between them; else
-            // the middle of the screen, where the laptop has room.
+            // At the desk: beside the board while it's up, facing it with the
+            // laptop between them; else at home, facing the middle of the
+            // screen, where the laptop has room.
+            if abs(reachable(desk) - x) > 1 {
+                behavior = .errand(nil)
+                return
+            }
             if let side = board?.side { facing = side } else { faceMiddle() }
             behavior = .work(since: clock)
         case .free:
@@ -709,7 +739,7 @@ final class Pet {
         case .work: doing = "work"
         case .pack(_, let cheers): doing = cheers ? "pack+cheer" : "pack"
         case .perform(let name, _, _): doing = "perform \(name)"
-        case .errand(_, let chore): doing = chore.map { "to the board: \($0.clip)" } ?? "back from the board"
+        case .errand(let chore): doing = chore.map { "to the board: \($0.clip)" } ?? "back from the board"
         case .chore(let chore, _, _): doing = "board: \(chore.clip)"
         case .hold(let name, _): doing = "hold \(name)"
         case .sleep: doing = sleptOnPurpose ? "sleep (asked)" : "sleep"

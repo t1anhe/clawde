@@ -53,10 +53,6 @@ final class Board {
         var style: Style
         /// The clip Clawd plays for it, turned to the board.
         var clip: String
-        /// Where Clawd's body's left edge stands for it, on screen, and which
-        /// way it faces to be turned to the board.
-        var spot: CGFloat
-        var facing: CGFloat
         /// About how long its loop should go round for.
         var seconds: Double
     }
@@ -104,8 +100,9 @@ final class Board {
     private let view: BoardView
     private var unit: CGFloat = 3
     private var scale: CGFloat = 2
-    /// Whether it stands to the right of Clawd's spot; fixed while it's up.
-    private var onRight: Bool?
+    /// The widest the board has been since it went up: it moves over to make
+    /// room, never back, so Clawd's desk stays put while it's up.
+    private var widest: CGFloat = 0
     /// Where Clawd's body's left edge stands at home, and the screen it's on.
     private var home: (bodyLeft: CGFloat, screen: NSRect)?
 
@@ -192,14 +189,11 @@ final class Board {
     /// The next thing for Clawd to do at the board, now its own: rubbing a
     /// done session out comes first, to make room; then writing the next one up.
     func nextChore() -> Chore? {
-        guard hasChores, let style, let spot = spot(), let facing = side ?? boardFrame().map({ $0.right ? 1 : -1 }) else {
-            return nil
-        }
+        guard hasChores, let style else { return nil }
         if let row = rows.filter({ done.contains($0.entry.id) }).min(by: { $0.target < $1.target }) {
             let slot = min(row.target, Self.capacity - 1) + 1
             let chore = Chore(kind: .erase, session: row.entry.id, style: style,
-                              clip: style == .cork ? "board-unpin-\(slot)" : "board-erase-\(slot)",
-                              spot: spot, facing: facing, seconds: 1.3)
+                              clip: style == .cork ? "board-unpin-\(slot)" : "board-erase-\(slot)", seconds: 1.3)
             busy = chore
             return chore
         }
@@ -208,7 +202,7 @@ final class Board {
         rows.append(Row(entry: entry, slot: 0, target: 0, reveal: 0, shown: style != .cork))
         let letters = Double(entry.project.count + entry.title.count)
         let chore = Chore(kind: .write, session: entry.id, style: style, clip: style == .cork ? "board-pin" : "board-write",
-                          spot: spot, facing: facing, seconds: 0.8 + 0.07 * letters)
+                          seconds: 0.8 + 0.07 * letters)
         busy = chore
         dirty = true
         return chore
@@ -263,41 +257,41 @@ final class Board {
         tick(below: window)
     }
 
-    /// Which way Clawd turns to face the board while it's up: 1 right, -1 left.
-    var side: CGFloat? {
-        guard presence > 0 || !rows.isEmpty, let frame = boardFrame() else { return nil }
-        return frame.right ? 1 : -1
+    /// Whether the board is up, or on its way.
+    var isUp: Bool { presence > 0 || !rows.isEmpty }
+
+    /// Which way Clawd turns to face the board while it's up: right, always,
+    /// so it writes from the start of each row.
+    var side: CGFloat? { isUp ? 1 : nil }
+
+    /// Where Clawd's body's left edge stands to work at the board as it is
+    /// now: in front of its near end, 7 units short of it. Clawd heads for it
+    /// afresh every frame, so it finds the board wherever the board has got to.
+    func workSpot() -> CGFloat? {
+        boardFrame().map { $0.near - 7 * unit }
     }
 
-    /// Where Clawd's body's left edge stands to work at the board: in front
-    /// of its near end, 7 units short of it when it stands to the right, and
-    /// turned left to one on the left, its body's right edge 7 units past it.
-    private func spot() -> CGFloat? {
-        guard let frame = boardFrame() else { return nil }
-        return frame.right ? frame.near - 7 * unit : frame.near - unit
+    /// Where Clawd's body's left edge sits at its laptop while the board is
+    /// up: 14 units short of the board, the laptop between them. That's home,
+    /// unless there's no room for the board to its right; then Clawd moves its
+    /// desk over to the left of the board.
+    var deskSpot: CGFloat? {
+        guard isUp, let frame = boardFrame() else { return nil }
+        return frame.near - 14 * unit
     }
 
-    /// The board's near edge (its frame's edge next to Clawd), whether it
-    /// stands to the right of Clawd's spot, and its window's frame on screen.
-    /// It stands to the right, where Clawd writes on from the start of its
-    /// rows, unless it would run off the screen there.
-    private func boardFrame() -> (near: CGFloat, right: Bool, window: NSRect)? {
+    /// The board's near edge (its frame's left, next to Clawd) and its
+    /// window's frame on screen: 14 units to the right of Clawd's home, or as
+    /// much further left as it takes to stay on the screen.
+    private func boardFrame() -> (near: CGFloat, window: NSRect)? {
         guard let home else { return nil }
         let u = unit
         let size = layoutSize()
         let width = size.width * u, height = size.height * u
         let screen = home.screen
-        let right = onRight ?? (home.bodyLeft + 14 * u - Self.margin * u + width <= screen.maxX)
-        if onRight == nil, presence > 0 || !rows.isEmpty { onRight = right }
-        if right {
-            // The frame's near edge 14 units from home: room for the laptop.
-            var near = home.bodyLeft + 14 * u
-            near = min(near, screen.maxX - width + Self.margin * u)
-            return (near, true, NSRect(x: (near - Self.margin * u).rounded(), y: screen.minY, width: width, height: height))
-        }
-        var near = home.bodyLeft - 6 * u
-        near = max(near, screen.minX + width - Self.margin * u)
-        return (near, false, NSRect(x: (near + Self.margin * u - width).rounded(), y: screen.minY, width: width, height: height))
+        var near = min(home.bodyLeft + 14 * u, screen.maxX - max(width, widest) + Self.margin * u)
+        near = max(near, screen.minX + 14 * u)
+        return (near, NSRect(x: (near - Self.margin * u).rounded(), y: screen.minY, width: width, height: height))
     }
 
     // MARK: Frame
@@ -326,10 +320,11 @@ final class Board {
         }
         if presence == 0 {
             if panel.isVisible { panel.orderOut(nil) }
-            onRight = nil
+            widest = 0
             if !up { room = 0 }
             return
         }
+        widest = max(widest, layoutSize().width * unit)
         guard let frame = boardFrame() else { return }
         if panel.frame != frame.window {
             panel.setFrame(frame.window, display: false)
