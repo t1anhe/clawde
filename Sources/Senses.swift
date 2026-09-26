@@ -91,7 +91,7 @@ final class Senses {
     // MARK: Games
 
     /// Launchers file themselves under games too, but picking a world isn't
-    /// playing: Minecraft's, Prism's, HMCL and the like all say "launcher".
+    /// playing: Minecraft's own, Prism's and the like all say "launcher".
     private static func isLauncher(_ bundle: String) -> Bool {
         bundle.localizedCaseInsensitiveContains("launcher")
     }
