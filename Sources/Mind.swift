@@ -64,6 +64,8 @@ final class Mind {
     private var lastBeat = -Double.infinity
     private var nextBeat = CACurrentMediaTime() + 20
     private var urgentAt: Double?
+    /// When heartbeats were switched off, while they are.
+    private var stoppedAt: Date?
     private var awaySince: Date?
     private var battery: Senses.Battery?
     private var song: String?
@@ -101,11 +103,17 @@ final class Mind {
     func start() {
         guard timer == nil else { return }
         battery = senses.battery()
+        urgentAt = nil
         let timer = Timer(timeInterval: 5, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
         }
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
+        // Switched back on: Clawd hears it missed a while, not old news as new.
+        if let since = stoppedAt {
+            note("you were switched off for \(max(1, Int(Date().timeIntervalSince(since) / 60))) min and have just been switched back on")
+        }
+        stoppedAt = nil
     }
 
     /// No more heartbeats until `start` again.
@@ -113,6 +121,7 @@ final class Mind {
         timer?.invalidate()
         timer = nil
         changes.removeAll()
+        stoppedAt = Date()
     }
 
     /// Claude Code started or finished a turn somewhere.
@@ -127,6 +136,8 @@ final class Mind {
     }
 
     private func note(_ change: String) {
+        // Switched off, nothing is being told.
+        guard timer != nil else { return }
         changes.append(change)
         if changes.count > 12 { changes.removeFirst(changes.count - 12) }
     }

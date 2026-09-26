@@ -103,13 +103,17 @@ final class ChatController {
     }
 
     /// Puts the field and the bubble away and lets the claude process go,
-    /// keeping its saved conversation for next time.
+    /// keeping its saved conversation for next time. News Clawd was still
+    /// putting its own way is told plainly instead.
     func disconnect() {
+        let news = turn == .event && !eventSaid ? eventFallback : nil
         input.close()
         turn = nil
         queued = nil
+        eventFallback = nil
         dismissBubble()
         brain.restart()
+        if let news { tell(news) }
     }
 
     /// A click on Clawd while its bubble shows puts the bubble away.
@@ -170,6 +174,8 @@ final class ChatController {
     }
 
     private func handle(_ event: Brain.Event) {
+        // Nothing asked, nothing to hear: the process was let go mid-reply.
+        guard turn != nil else { return }
         switch event {
         case .text(let piece):
             raw += piece

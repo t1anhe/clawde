@@ -21,13 +21,16 @@ final class Brain {
     /// The one conversation Clawd keeps, resumed at each launch.
     var sessionID = UUID().uuidString.lowercased()
 
-    /// A quiet process is let go after this long; the next message starts a new conversation.
+    /// A quiet process is let go after this long; the next message starts it
+    /// again, on the same conversation.
     static let idleSeconds: TimeInterval = 15 * 60
     static let replyTimeout: TimeInterval = 120
 
     private let queue = DispatchQueue(label: "clawd.brain")
     private var process: Process?
     private var stdin: FileHandle?
+    /// Its output and errors, read as they come.
+    private var reading: [FileHandle] = []
     private var pending = Data()
     private var stderrTail = ""
     private var idleKill: DispatchWorkItem?
@@ -119,6 +122,7 @@ final class Brain {
         try process.run()
         self.process = process
         stdin = input.fileHandleForWriting
+        reading = [output.fileHandleForReading, errors.fileHandleForReading]
         pending = Data()
         stderrTail = ""
     }
@@ -130,6 +134,9 @@ final class Brain {
         self.process = nil
         try? stdin?.close()
         stdin = nil
+        // Whatever it still had to say goes unheard: a reply cut off stays cut off.
+        for handle in reading { handle.readabilityHandler = nil }
+        reading = []
         if process.isRunning {
             process.terminate()
             // Claude Code writes the session's last bookkeeping as it exits.
