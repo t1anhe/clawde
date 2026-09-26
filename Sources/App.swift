@@ -114,7 +114,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in self?.startBoardDemo() }
         }
         if let folder = ProcessInfo.processInfo.environment["CLAWD_RECORD"] {
-            recorder = Recorder(folder: folder, windows: { [unowned self] in [self.board.window, self.pet.window] })
+            recorder = Recorder(folder: folder, windows: { [unowned self] in
+                [self.board.window, self.pet.window, self.chat.bubbleWindow]
+            })
         }
     }
 
@@ -418,6 +420,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func startBoardDemo() {
         boardDemo = true
         board.clear()
+        // Made-up news mustn't end up in Clawd's real conversation: the demo
+        // talks on a throwaway one, forgotten after.
+        let realSession = chat.brain.sessionID, throwaway = UUID().uuidString.lowercased()
+        chat.brain.sessionID = throwaway
+        chat.brain.restart()
         // --board-demo white (or cork) tries another board, this once.
         let arguments = CommandLine.arguments
         if let at = arguments.firstIndex(of: "--board-demo"), at + 1 < arguments.count,
@@ -440,10 +447,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             steps.append((1, { [weak self] in self?.board.started(entry(id)) }))
         }
         steps += [
-            (8, { [weak self] in self?.board.started(entry("e", needs: true)) }),
+            (8, { [weak self] in
+                self?.board.started(entry("e", needs: true))
+                self?.announce("[event] Claude Code needs the user's OK to go on, in \"Level 3\" (in game): "
+                               + "Bash: npm run build Tell them, in one short line.",
+                               plainly: "game · Level 3 needs your OK: Bash: npm run build")
+            }),
             (5, { [weak self] in self?.board.toggleExpanded() }),
             (5, { [weak self] in self?.board.toggleExpanded() }),
-            (2, { [weak self] in self?.board.finished("a") }),
+            (1, { [weak self] in self?.pet.shipped() }),
+            (4, { [weak self] in
+                self?.board.finished("a")
+                self?.announce("[event] Claude Code just finished in \"Login page\" (in my-app). Its last words: "
+                               + "\"The login page remembers you now.\" Tell the user it's done, in one short line.",
+                               plainly: "my-app · Login page is done!")
+            }),
             (12, { [weak self] in self?.board.started(entry("e")); self?.board.finished("c") }),
             (12, { [weak self] in self?.board.finished("b") }),
             (12, { [weak self] in self?.board.finished("e") }),
@@ -451,8 +469,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             (8, { [weak self] in self?.board.finished("f") }),
             (4, { [weak self] in self?.pet.setClaude(.idle, quietly: true) }),
             (8, { [weak self] in
-                self?.boardDemo = false
-                if ProcessInfo.processInfo.environment["CLAWD_RECORD"] != nil { NSApp.terminate(nil) }
+                guard let self else { return }
+                self.boardDemo = false
+                self.chat.brain.sessionID = realSession
+                self.chat.brain.restart()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                    Brain.forget(throwaway)
+                    if ProcessInfo.processInfo.environment["CLAWD_RECORD"] != nil { NSApp.terminate(nil) }
+                }
             }),
         ]
         var at = 0.0
@@ -520,15 +544,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             remind(session, after: wait + 180, again: true)
         case .finished(let session, let said):
             log("finished: \(session.project) · \(session.title)\(session.interrupted ? " (interrupted)" : said == nil ? "" : " (with its last words)")")
-            if !session.interrupted { say("\(session.project) · \(session.title) is done!", linger: 6) }
+            if !session.interrupted {
+                let last = said.map { " Its last words: \"\(ClaudeWatcher.clip($0, 240))\"" } ?? ""
+                announce("[event] Claude Code just finished in \(Self.name(of: session)).\(last) Tell the user it's done, in one short line.",
+                         plainly: "\(session.project) · \(session.title) is done!")
+            }
             board.finished(session.id)
         }
     }
 
-    /// A line in Clawd's chat bubble, and in the log with CLAWD_DEBUG set.
-    private func say(_ line: String, linger: Double) {
-        log("says: \(line)")
-        chat.say(line, linger: linger)
+    /// News of a session, with a hop: put in Clawd's own words by Claude
+    /// when it's connected (the `note` goes to it), else said `plainly`.
+    private func announce(_ note: String, plainly: String) {
+        log("tells: \(plainly)")
+        if isConnected {
+            chat.event(note, fallback: plainly)
+        } else {
+            chat.say(plainly, linger: 8, holdsClawd: false)
+            pet.perk()
+        }
+    }
+
+    /// A session as Clawd's Brain hears of it.
+    private static func name(of session: ClaudeWatcher.Session) -> String {
+        session.title == session.project ? "the \(session.project) project" : "\"\(session.title)\" (in \(session.project))"
     }
 
     private static let debug = ProcessInfo.processInfo.environment["CLAWD_DEBUG"] != nil
@@ -546,16 +585,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                   let now = self.watcher.sessions.first(where: { $0.id == session.id }), let need = now.need,
                   need == session.need
             else { return }
-            let name = "\(now.project) · \(now.title)"
-            var line: String
+            let name = "\(now.project) · \(now.title)", called = Self.name(of: now)
+            var line: String, note: String
             switch need {
-            case .permission(let what): line = what.isEmpty ? "\(name) needs your OK." : "\(name) needs your OK: \(what)"
-            case .question(let question): line = question.isEmpty ? "\(name) has a question for you." : "\(name) asks: \(question)"
-            case .plan: line = "\(name) has a plan for you to look over."
+            case .permission(let what):
+                line = what.isEmpty ? "\(name) needs your OK." : "\(name) needs your OK: \(what)"
+                note = "Claude Code needs the user's OK to go on, in \(called)" + (what.isEmpty ? "." : ": \(what)")
+            case .question(let question):
+                line = question.isEmpty ? "\(name) has a question for you." : "\(name) asks: \(question)"
+                note = "Claude Code is asking the user something, in \(called)" + (question.isEmpty ? "." : ": \"\(question)\"")
+            case .plan:
+                line = "\(name) has a plan for you to look over."
+                note = "Claude Code has a plan ready for the user to look over, in \(called)."
             }
-            if again { line = "Still waiting on you: " + line }
-            self.say(line, linger: 8)
-            self.pet.perk()
+            if again {
+                line = "Still waiting on you: " + line
+                note += " It's been waiting on them for three minutes now."
+            }
+            self.announce("[event] \(note) Tell them, in one short line.", plainly: line)
         }
     }
 

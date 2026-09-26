@@ -79,11 +79,12 @@ enum Animations {
     /// just for fun.
     static let groups: [(title: String, actions: [(name: String, title: String)])] = [
         ("With Claude", [("laptop", "Typing"), ("thinking", "Thinking"), ("idea", "Idea"), ("detective", "Detective"),
-                         ("hardhat", "Hard Hat"), ("calling", "Calling You"), ("sailboat", "Sailing"),
+                         ("hardhat", "Hard Hat"), ("calling", "Calling You"), ("mailbox", "Posting a Letter"),
                          ("confetti", "Confetti"), ("sunglasses", "Sunglasses")]),
         ("With You", [("gaming", "Gaming"), ("headphones", "Headphones"), ("reading", "Reading"), ("bubbles", "Bubbles"),
                       ("love", "Love"), ("dizzy", "Dizzy"), ("yawn", "Yawn"), ("skateboard", "Skateboard")]),
-        ("Just for Fun", [("wizard", "Wizard"), ("guitar", "Guitar"), ("kite", "Kite"), ("sparkler", "Sparkler")]),
+        ("Just for Fun", [("wizard", "Wizard"), ("guitar", "Guitar"), ("kite", "Kite"), ("sparkler", "Sparkler"),
+                          ("sailboat", "Sailing")]),
     ].map { group in (group.0, group.1.filter { all[$0.0] != nil }) }.filter { !$0.1.isEmpty }
 
     private static func load() -> [String: Clip] {

@@ -37,9 +37,9 @@ final class Mind {
         var guidance: String {
             switch self {
             case .chatty:
-                "you're in chatty mode: the user wants you to talk a lot, so say something on nearly every heartbeat, at least two out of three. Anything goes as long as it's short and fresh: react to the app or window they're in, to what Claude Code is doing and in which project, to the time of day (lunch, dinner, late night), the music, the battery, how long they've been at it; ask them a question; cheer them on; tell a tiny joke or a crab fact. Reply [quiet] only when you truly have nothing new since your last remark"
+                "you're in chatty mode: the user wants you to talk a lot, so say something on nearly every heartbeat, at least two out of three. Anything goes as long as it's short and fresh: react to the app or window they're in, to what Claude Code is doing and in which project, to the time of day (lunch, dinner, late night), the music, the battery, how long they've been at it; ask them a question; cheer them on; tell a tiny joke or a crab fact. While Claude Code is at work, mutter little asides about it, like a coworker glancing over (what it's up to, how long it's taking). While they play a game, be the cheeky friend on the sofa beside them: mostly tease them, doubting their plays and their luck (\"Your card play… bold choice.\", \"Was that the plan, or did the dice decide?\"), playful and never mean; don't just ask how it's going. Reply [quiet] only when you truly have nothing new since your last remark"
             case .occasional:
-                "speak up only when something is genuinely worth saying (Claude finished something, they've been at it for hours, it's very late, the battery is low), at most every ten minutes or so; otherwise stay quiet"
+                "speak up only when something is genuinely worth saying (they've been at it for hours, it's very late, the battery is low, a game has got interesting), at most every ten minutes or so; otherwise stay quiet"
             case .quiet:
                 "always reply [quiet]: the user only wants you to talk when they talk to you, and heartbeats just keep you aware of what they're doing"
             }
@@ -69,6 +69,7 @@ final class Mind {
     private var song: String?
     private var songCheckedAt = -Double.infinity
     private var hour = Mind.calendar.component(.hour, from: Date())
+    private var gaming = false
     /// Heartbeats in a row Clawd answered with [quiet].
     private var quietStreak = 0
 
@@ -166,6 +167,18 @@ final class Mind {
             song = playing
         }
 
+        // A game coming up is worth a word soon.
+        let playing = senses.isGameInFront
+        if playing != gaming {
+            gaming = playing
+            if playing {
+                note("started playing \(senses.frontApp)")
+                soon(20)
+            } else {
+                note("stopped playing")
+            }
+        }
+
         let currentHour = Self.calendar.component(.hour, from: Date())
         if currentHour != hour {
             hour = currentHour
@@ -197,6 +210,7 @@ final class Mind {
         var lines = ["[heartbeat] \(Self.clock.string(from: Date()))"]
         let minutes = Int(Date().timeIntervalSince(senses.frontSince) / 60)
         lines.append("Front app: \(senses.frontApp) (for \(minutes) min)")
+        if senses.isGameInFront { lines.append("They're playing a game: \(senses.frontApp)") }
         if let title = senses.windowTitle() { lines.append("Window: \(title)") }
         lines.append(idle < 60 ? "Idle: using the computer" : "Idle: nothing touched for \(Int(idle / 60)) min")
         if let battery { lines.append("Battery: \(battery.percent)% (\(battery.charging ? "charging" : "on battery"))") }
@@ -261,10 +275,12 @@ final class Mind {
         desktop as a desk pet, just above the Dock, and you're powered by Claude. You keep one long conversation \
         going with the user across days.
 
-        Two kinds of messages reach you. Messages from the user, typed into a little box after they double-click \
-        you. And messages that begin with [heartbeat]: automatic notes about the computer (the time, the app in \
-        front and its window, how long they've been idle, the battery, the music, what Claude Code is working on, \
-        and what changed since the last note). The user doesn't see those.
+        Three kinds of messages reach you. Messages from the user, typed into a little box after they double-click \
+        you. Messages that begin with [heartbeat]: automatic notes about the computer (the time, the app in front \
+        and its window, the game they're playing, how long they've been idle, the battery, the music, what Claude \
+        Code is working on, and what changed since the last note). And messages that begin with [event]: news about \
+        their Claude Code sessions they should hear right away (one needs their OK or an answer, has a plan for \
+        them, or has finished). The user doesn't see heartbeats or events, only your replies.
 
         Your replies appear in a small speech bubble over your head, so keep them short: one or two sentences, three \
         at most, of plain text with no Markdown, lists or code blocks. Speak English, including when answering a \
@@ -272,9 +288,12 @@ final class Mind {
         cheeky, and genuinely helpful when they ask something real. You can't use tools, read files or browse; for \
         real work, point them to Claude Code.
 
+        Always answer an [event] with one short line telling the user, in your own voice, never [quiet]: name the \
+        session or project so they know which, and for a finished one you may say in a few words what it did. \
         When a heartbeat comes in, \(chattiness.guidance). To stay quiet, reply with exactly [quiet]. When you do \
         speak, talk to the user naturally, as if you'd just noticed something yourself; never mention heartbeats, \
-        notes or snapshots, and never recite them back. Vary what you say and don't repeat yourself. Be discreet \
+        notes or snapshots, and never recite them back. Vary what you say and don't repeat yourself, and don't welcome \
+        them back unless a note says they've just come back. Be discreet \
         about window titles that look private (banking, passwords, private messages, health): don't read them out.
 
         Long-term notes: when you learn something worth remembering about the user (their name, preferences, \

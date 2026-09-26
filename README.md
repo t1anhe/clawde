@@ -20,7 +20,7 @@ A little Clawd who lives on your Mac, just above the Dock, and acts out what you
 | starting to work | has an idea 💡, then pulls out its laptop and types |
 | looking things up (reads, searches) | puts on a top hat and peers through a magnifying glass |
 | changing lots of code | puts on a hard hat and swings a wrench |
-| committing or pushing | sets sail in a little wooden boat |
+| committing or pushing | posts a letter, and the mailbox's flag springs up |
 | waiting for your answer | waves at you with a big **!** |
 | done | cheers: confetti, sunglasses or a heart |
 
@@ -36,7 +36,7 @@ A little Clawd who lives on your Mac, just above the Dock, and acts out what you
 - **Sitting still** for a while: blows bubbles. **Away** for five minutes: naps. **Back** after ten: a heart and a welcome.
 - **Two hours without a break**: gets dizzy and tells you to stretch. **Late at night**: yawns in a nightcap. **At the weekend**: goes skateboarding.
 
-**Always.** Its eyes follow your pointer. It paces about a little, and you can drag it, throw it (hard enough and it lands dizzy) or poke it for a hop and a heart. Right-click it or use the menu-bar icon to make it perform any of its 21 actions, resize it, put it to sleep, have it open at login or run a demo of everything above.
+**Always.** Its eyes follow your pointer. It paces about a little, and you can drag it, throw it (hard enough and it lands dizzy) or poke it for a hop and a heart. Right-click it or use the menu-bar icon to make it perform any of its 22 actions, resize it, put it to sleep, have it open at login or run a demo of everything above.
 
 ![Every action](docs/actions.png)
 
@@ -55,7 +55,7 @@ Clawde needs macOS 14 or later and runs on Apple silicon and Intel Macs. It live
 
 ### Chatting with Clawd (optional)
 
-Turn on **Connect to Claude** in the menu and double-click Clawd to talk to it. Chat runs through your own [Claude Code](https://claude.com/claude-code) command-line tool (`claude` must be installed and signed in) with a light model, and uses your own plan. Clawd keeps a few notes about you in `~/Library/Application Support/Clawde/notes.md`; the menu can open them or make Clawd forget everything.
+Turn on **Connect to Claude** in the menu and double-click Clawd to talk to it. Connected, Clawd also puts Claude Code's news in its own words (a session wants your OK, asks you something, is done), mutters now and then while Claude works, and teases you while you game; **Chattiness** sets how often. Chat runs through your own [Claude Code](https://claude.com/claude-code) command-line tool (`claude` must be installed and signed in) with a light model, and uses your own plan. Clawd keeps a few notes about you in `~/Library/Application Support/Clawde/notes.md`; the menu can open them or make Clawd forget everything.
 
 ## Build from source
 
@@ -84,6 +84,7 @@ A few command-line switches help while working on it:
 | `Clawde --claude-state` | prints what Clawd reads from your Claude Code sessions |
 | `Clawde --hooks [on\|off]` | adds or takes out Clawde's Claude Code hooks, or says whether they're in |
 | `Clawde --board-demo [white\|cork]` | puts made-up sessions up on the board and takes them down again |
+| `Clawde --tell "[event] …"` | sends one message to Clawd (its persona, a throwaway conversation) and prints the reply |
 | `CLAWD_RECORD=folder Clawde …` | saves what Clawd and the board look like as PNGs, twelve a second |
 | `Clawde --games` | lists which running apps Clawd counts as games |
 | `Clawde --sheet out.png` | draws every built-in pose to one image |

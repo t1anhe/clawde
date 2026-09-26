@@ -2,8 +2,8 @@ import AppKit
 import QuartzCore
 
 /// Talking with Clawd: a field that pops up over its head, a speech bubble
-/// that follows it, and the Brain answering both what you type and the
-/// heartbeat notes the Mind sends.
+/// that follows it, and the Brain answering what you type, the heartbeat
+/// notes the Mind sends, and news of Claude Code's sessions to pass on.
 @MainActor
 final class ChatController {
     private enum Phase {
@@ -13,7 +13,7 @@ final class ChatController {
         case lingering(until: Double)
     }
 
-    private enum Turn { case chat, heartbeat }
+    private enum Turn { case chat, heartbeat, event }
 
     let brain = Brain()
     /// A fact Clawd asked to keep, from a <remember> tag in a reply.
@@ -29,8 +29,14 @@ final class ChatController {
     private var turn: Turn?
     /// The reply so far, tags and all.
     private var raw = ""
-    /// A message typed while a heartbeat was out, sent once it's answered.
+    /// A message typed while a heartbeat or an event was out, sent once it's answered.
     private var queued: String?
+    /// What an event says if Clawd can't put it its own way in time, and
+    /// whether that's been said already (the reply came too late).
+    private var eventFallback: String?
+    private var eventSaid = false
+    /// How long Clawd gets to put news its own way.
+    private static let eventTimeout = 10.0
 
     init(pet: Pet) {
         self.pet = pet
@@ -43,6 +49,9 @@ final class ChatController {
 
     /// Waiting on an answer to something you said.
     var isBusy: Bool { turn == .chat || queued != nil }
+
+    /// The window the speech bubble shows in.
+    var bubbleWindow: NSWindow { speech }
 
     /// A heartbeat waits while you're typing, reading a bubble, or talking with Clawd.
     var canTakeHeartbeat: Bool {
@@ -63,6 +72,34 @@ final class ChatController {
         brain.send(note)
     }
 
+    /// Passes on news of a Claude Code session in Clawd's own words: `note`
+    /// goes to the Brain, and whatever it says shows over Clawd's head with a
+    /// hop. Busy with something else, or slow to answer, Clawd says
+    /// `fallback` instead.
+    func event(_ note: String, fallback: String) {
+        guard turn == nil, queued == nil, !input.isVisible else {
+            tell(fallback)
+            return
+        }
+        turn = .event
+        raw = ""
+        eventFallback = fallback
+        eventSaid = false
+        brain.send(note)
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.eventTimeout) { [weak self] in
+            guard let self, self.turn == .event, !self.eventSaid else { return }
+            self.eventSaid = true
+            self.tell(fallback)
+        }
+    }
+
+    /// Something to tell you: a hop, and the line in the bubble.
+    private func tell(_ line: String) {
+        guard !line.isEmpty else { return }
+        pet.perk()
+        say(line, linger: min(30, 8 + Double(line.count) * 0.06), holdsClawd: false)
+    }
+
     /// Puts the field and the bubble away and lets the claude process go,
     /// keeping its saved conversation for next time.
     func disconnect() {
@@ -78,12 +115,14 @@ final class ChatController {
         if case .lingering = phase { dismissBubble() }
     }
 
-    /// Shows a line over Clawd's head for a while.
-    func say(_ text: String, linger seconds: Double) {
+    /// Shows a line over Clawd's head for a while. In a chat Clawd stops to
+    /// face you (`holdsClawd`); news and remarks it says in passing, carrying
+    /// on with whatever it's doing, the bubble following it.
+    func say(_ text: String, linger seconds: Double, holdsClawd: Bool = true) {
         raw = text
         speech.alphaValue = 1
         phase = .lingering(until: CACurrentMediaTime() + seconds)
-        pet.chatMood = .listening
+        if holdsClawd { pet.chatMood = .listening }
     }
 
     /// Keeps the field and the bubble over Clawd's head; runs every frame.
@@ -110,7 +149,7 @@ final class ChatController {
         phase = .waiting(since: CACurrentMediaTime())
         pet.chatMood = .thinking
         speech.alphaValue = 1
-        if turn == .heartbeat {
+        if turn == .heartbeat || turn == .event {
             queued = text
         } else {
             send(text)
@@ -139,12 +178,20 @@ final class ChatController {
             let finished = turn
             turn = nil
             for fact in Self.facts(in: raw) { onRemember?(fact) }
-            // You spoke while a heartbeat was out: its reply gives way to yours.
+            if finished == .event {
+                // News is told whatever else is going on: in Clawd's words,
+                // or plainly if it came up empty or it's been told already.
+                let shown = Self.visible(raw)
+                if !eventSaid { tell(Self.isQuiet(shown) ? eventFallback ?? "" : shown) }
+                eventFallback = nil
+            }
+            // You spoke while a heartbeat or news was out: its reply gives way to yours.
             if let text = queued {
                 queued = nil
                 send(text)
                 return
             }
+            guard finished != .event else { return }
             let shown = Self.visible(raw)
             // Long enough to read: a beat plus a little per character.
             let linger = min(30, 4 + Double(shown.count) * 0.12)
@@ -156,12 +203,16 @@ final class ChatController {
                 if spoke {
                     // Speaking up unasked: a little hop first, so you notice.
                     pet.perk()
-                    say(shown, linger: linger)
+                    say(shown, linger: linger, holdsClawd: false)
                 }
             }
         case .failed(let why):
             let finished = turn
             turn = nil
+            if finished == .event {
+                if !eventSaid { tell(eventFallback ?? "") }
+                eventFallback = nil
+            }
             if let text = queued {
                 queued = nil
                 send(text)

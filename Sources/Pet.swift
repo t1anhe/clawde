@@ -238,9 +238,10 @@ final class Pet {
         view.frame = NSRect(origin: .zero, size: size)
     }
 
-    /// A small hop, to catch your eye.
+    /// A small hop, to catch your eye; not in the middle of writing on the board.
     func perk() {
         wake()
+        if case .chore = behavior { return }
         if !isCarried, !isAirborne { vy = 300 }
     }
 
@@ -285,10 +286,10 @@ final class Pet {
         }
     }
 
-    /// One of Claude's commits or pushes went through: off Clawd sails.
+    /// One of Claude's commits or pushes went through: off it goes in the post.
     func shipped() {
         guard !isCarried, !isAirborne, board?.busy == nil else { return }
-        perform("sailboat")
+        perform("mailbox")
     }
 
     /// What you're up to, every second: how long since you last touched the

@@ -2196,6 +2196,109 @@ def act_sparkler():
     return {"fps": 12, "frames": frames, "loop": loop}
 
 
+# MARK: Mailbox
+
+# Claude's commits and pushes go off in the post: a gray rural mailbox on a
+# wooden post pops up beside Clawd, which posts a letter through its door,
+# and the red flag springs up to say it's gone.
+GRAY_LIGHT = "#ABABAB"
+MAILBOX_X = 9.5     # the door, just in front of Clawd's claw
+
+
+def mailbox(f, door_open=False, flag=0, lift=0.0, dots=0):
+    """The mailbox: a box 5.5 long and 3 tall, its top rounded, on a post;
+    its door at the near end (dropped open, lying out toward Clawd, when
+    `door_open`), its flag on the side at the far end, down (0), springing
+    (1) or up (2). `dots` 1 or 2 draws it as the film's dots, coming or
+    going (2 thinner)."""
+    x, y = MAILBOX_X, 3.0 + lift
+    parts = [(rect_cells(x + 2, 0, 1, y), WOOD), (rect_cells(x + 2.5, 0, 0.5, y), WOOD_DARK)]
+    parts.append((rect_cells(x, y, 5.5, 2.5) | rect_cells(x + 0.5, y + 2.5, 4.5, 0.5), GRAY))
+    parts.append((rect_cells(x, y, 5.5, 0.5), GRAY_DARK))
+    parts.append((rect_cells(x + 0.5, y + 2.5, 4.5, 0.5), GRAY_LIGHT))
+    if door_open:
+        parts.append((rect_cells(x, y + 0.5, 0.5, 2), INK))
+        parts.append((rect_cells(x - 2.5, y, 2.5, 0.5), GRAY_DARK))
+    else:
+        parts.append((rect_cells(x, y + 0.5, 0.5, 2), GRAY_DARK))
+    if flag == 0:
+        parts.append((rect_cells(x + 3.5, y + 1.5, 1.5, 0.5), SALMON_DARK))
+        parts.append((rect_cells(x + 3, y + 1, 1, 1), SALMON))
+    elif flag == 1:
+        parts.append(({(x + 4.5, y + 2.0), (x + 4.0, y + 2.5), (x + 3.5, y + 3.0)}, SALMON_DARK))
+        parts.append((rect_cells(x + 2.5, y + 3.0, 1, 1), SALMON))
+    else:
+        parts.append((rect_cells(x + 4.5, y + 2, 0.5, 2.5), SALMON_DARK))
+        parts.append((rect_cells(x + 3, y + 3.5, 1.5, 1), SALMON))
+    for cells, color in parts:
+        if dots:
+            for cx, cy in sorted(cells):
+                if dots == 1 or round((cx + cy) * 2) % 2 == 0:
+                    dot(f, cx, cy, color)
+        else:
+            fill(f, cells, color)
+
+
+def letter(f, x, y, into=None):
+    """A cream envelope with its flap and a salmon stamp, bottom left at
+    (x, y); going `into` the box, only what's still short of that is seen."""
+    keep = (lambda cells: {c for c in cells if c[0] < into}) if into is not None else (lambda cells: cells)
+    fill(f, keep(rect_cells(x, y, 2, 1.5)), CREAM)
+    fill(f, keep({(x + 0.5, y + 1.0), (x + 1.0, y + 0.5)}), PAPER_EDGE)
+    fill(f, keep({(x + 1.5, y + 1.0)}), SALMON)
+
+
+def act_mailbox():
+    frames = []
+
+    def pose(box=True, door=False, flag=0, box_lift=0.0, box_dots=0, claw=None, envelope=None, sparkle=0,
+             hold_=1, **body):
+        """`claw` is the near claw's bottom left (Clawd turned to the box) or
+        None; `envelope` where the letter's bottom left is, in at the door
+        when the door's open."""
+        f = Frame()
+        if box:
+            mailbox(f, door, flag, box_lift, box_dots)
+        if claw is not None:
+            body["side"] = True
+            body["arms"] = (None, None)
+        clawd(f, **body)
+        if claw is not None:
+            near_claw(f, *claw)
+        # The letter in front of the claw holding it.
+        if envelope is not None:
+            letter(f, *envelope, into=MAILBOX_X if door else None)
+        for k in range(sparkle):
+            sx, sy = [(12.5, 8.5), (15.5, 8.0), (14.0, 9.5)][k]
+            dot(f, sx, sy, CREAM)
+        frames.extend([f] * hold_)
+        return f
+
+    # Up it comes in dots; Clawd turns to it and brings out a letter.
+    pose(box=False)
+    pose(box_dots=2, eyes="up")
+    pose(box_dots=1, eyes="up")
+    pose(side=True, eyes="wide", hold_=2)
+    pose(claw=(8.0, 5.0), envelope=(8.5, 7.0), eyes="glee", hold_=2)
+    # The door drops open, the letter goes in, the door shuts with a push.
+    pose(door=True, claw=(7.0, 3.5), envelope=(7.5, 4.0), eyes="wide")
+    pose(door=True, claw=(7.5, 3.5), envelope=(8.5, 4.0), eyes="open", hold_=2)
+    pose(door=True, claw=(8.0, 3.5), envelope=(9.5, 4.0), eyes="open")
+    pose(claw=(8.0, 3.5), bottom=1.5, eyes="shut")
+    pose(claw=(8.0, 4.0), eyes="content")
+    # Sent: the flag springs up, the box gives a little jump, a glint.
+    pose(flag=1, box_lift=0.5, eyes="wide")
+    pose(flag=2, sparkle=3, eyes="glee", hold_=3)
+    pose(flag=2, sparkle=2, eyes="glee", lift=0.5, arms=(None, "up"), side=True)
+    pose(flag=2, eyes="glee", side=True, hold_=2)
+    # Off it goes in dots.
+    pose(flag=2, box_dots=1, eyes="content")
+    pose(flag=2, box_dots=2, eyes="content")
+    pose(box=False, eyes="content", hold_=2)
+    pose(box=False)
+    return {"fps": 12, "frames": frames}
+
+
 # MARK: Bulletin board
 
 # The board the pet puts up while Claude Code sessions work, a row to a
@@ -2453,6 +2556,7 @@ ACTIONS = {
     "detective": act_detective, "hardhat": act_hardhat, "sailboat": act_sailboat, "calling": act_calling,
     "reading": act_reading, "yawn": act_yawn, "skateboard": act_skateboard, "gaming": act_gaming,
     "wizard": act_wizard, "guitar": act_guitar, "kite": act_kite, "sparkler": act_sparkler,
+    "mailbox": act_mailbox,
     "board-write": act_board_write, "board-pin": lambda: act_board_write(pin=True),
     **{f"board-erase-{row + 1}": (lambda row=row: act_board_erase(row)) for row in range(3)},
     **{f"board-unpin-{row + 1}": (lambda row=row: act_board_unpin(row)) for row in range(3)},

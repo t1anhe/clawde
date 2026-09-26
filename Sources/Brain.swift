@@ -195,6 +195,14 @@ final class Brain {
     }
 
     /// Whether Claude Code has saved this session, so it can be resumed.
+    /// Throws away a conversation's transcript, for one that was only ever a try-out.
+    static func forget(_ id: String) {
+        let projects = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/projects")
+        for folder in (try? FileManager.default.contentsOfDirectory(atPath: projects.path)) ?? [] {
+            try? FileManager.default.removeItem(at: projects.appendingPathComponent("\(folder)/\(id).jsonl"))
+        }
+    }
+
     private static func transcriptExists(_ id: String) -> Bool {
         let projects = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/projects")
         let folders = (try? FileManager.default.contentsOfDirectory(atPath: projects.path)) ?? []

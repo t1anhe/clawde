@@ -261,6 +261,33 @@ if arguments.count == 2, arguments[1] == "--heartbeat" {
     }
     RunLoop.main.run()
 }
+if arguments.count == 3, arguments[1] == "--tell" {
+    // Sends one message (an [event], a made-up [heartbeat]…) to Clawd with its
+    // own persona, on a throwaway conversation, and prints its raw reply.
+    MainActor.assumeIsolated {
+        _ = NSApplication.shared
+        let pet = Pet(unit: 4)
+        let mind = Mind(senses: Senses(), watcher: ClaudeWatcher(), chat: ChatController(pet: pet), chattiness: .chatty)
+        let brain = Brain()
+        brain.systemPrompt = mind.systemPrompt
+        var reply = ""
+        brain.onEvent = { event in
+            switch event {
+            case .text(let piece): reply += piece
+            case .done, .failed:
+                print(reply)
+                brain.shutdown()
+                let projects = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/projects")
+                for folder in (try? FileManager.default.contentsOfDirectory(atPath: projects.path)) ?? [] {
+                    try? FileManager.default.removeItem(at: projects.appendingPathComponent("\(folder)/\(brain.sessionID).jsonl"))
+                }
+                exit(0)
+            }
+        }
+        brain.send(arguments[2])
+    }
+    RunLoop.main.run()
+}
 if arguments.count == 4, arguments[1] == "--bubble" {
     // Renders a speech bubble holding the given text, to check wrapping.
     let view = SpeechView(frame: NSRect(origin: .zero, size: SpeechView.size(for: arguments[3])))

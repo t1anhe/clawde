@@ -92,8 +92,8 @@ final class Board {
     /// Sessions to write up when there's room, oldest first, and when each got going.
     private var waiting: [Entry] = []
     private var waitingSince: [String: Double] = [:]
-    /// Showing every session waiting its turn, in dots over the rows, till
-    /// the tab's clicked again.
+    /// Showing every session waiting its turn over the rows, till the tab's
+    /// clicked again.
     private(set) var expanded = false
     /// Sessions on the board that are done, to rub out.
     private var done: Set<String> = []
@@ -633,7 +633,14 @@ final class Board {
             let bottom = sy + Self.pad + slot * (Self.line + Self.gap)
             return (sx + Self.pad, bottom + Self.line / 2, bottom)
         }
-        for row in rows {
+        // Opened up, every session waiting its turn shows too, over the rows,
+        // just as a row would.
+        let waitingRows = expanded
+            ? waiting.prefix(Self.mostShown).enumerated().map { k, entry in
+                Row(entry: entry, slot: Double(rows.count + k), target: rows.count + k)
+            }
+            : []
+        for row in rows + waitingRows {
             let words = Self.words(row.entry)
             let at = place(CGFloat(row.slot))
             if style == .cork {
@@ -649,14 +656,6 @@ final class Board {
             }
             drawWords(words, row: row, x: at.x, middle: at.middle, style: style, painter: painter)
         }
-        // Opened up: every session still waiting its turn over the rows, in
-        // dots, not yet written.
-        if expanded {
-            for (k, entry) in waiting.prefix(Self.mostShown).enumerated() {
-                let at = place(CGFloat(rows.count + k))
-                drawWaiting(Self.words(entry), x: at.x, middle: at.middle, style: style, painter: painter)
-            }
-        }
 
         if let tab = tabBox(g) {
             painter.fill(tab.rect.minX, tab.rect.minY, tab.rect.width, tab.rect.height, style == .white ? Self.gray : Self.wood)
@@ -666,17 +665,6 @@ final class Board {
                              top: tab.rect.maxY - 0.5, pixel: tp, color: red ? Self.salmon : label)
             }
         }
-    }
-
-    /// A session waiting its turn, shown with the board opened up: its words
-    /// in dots, every other pixel, as the film draws what's dim; its ! whole.
-    private func drawWaiting(_ words: Words, x: CGFloat, middle: CGFloat, style: Style, painter: Painter) {
-        let tp = textPixel
-        let top = middle + 6 * tp / unit
-        let dim = style == .chalk ? Self.chalkDim : Self.grayDark
-        painter.text(words.pixels.filter { $0.part != .bang && ($0.x + $0.y) % 2 == 0 }.map { ($0.x, $0.y) },
-                     x: x, top: top, pixel: tp, color: dim)
-        painter.text(words.pixels.filter { $0.part == .bang }.map { ($0.x, $0.y) }, x: x, top: top, pixel: tp, color: Self.salmon)
     }
 
     /// A row's words, their line's left at `x` and centred on `middle`,
