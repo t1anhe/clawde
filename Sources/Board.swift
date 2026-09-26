@@ -350,7 +350,9 @@ final class Board {
             dirty = true
         }
         if expanded, waiting.isEmpty { expanded = false; dirty = true }
-        let wantRoom = Double((rows.map(\.target).max() ?? -1) + 1 + (expanded ? min(waiting.count, Self.mostShown) : 0))
+        let written: Int = (rows.map(\.target).max() ?? -1) + 1
+        let shown: Int = expanded ? min(waiting.count, Self.mostShown) : 0
+        let wantRoom = Double(written + shown)
         if room != wantRoom {
             let step = 5.0 * dt
             room = abs(wantRoom - room) <= step ? wantRoom : room + (wantRoom > room ? step : -step)

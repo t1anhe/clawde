@@ -442,43 +442,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Six get going; three go up and three wait, one of them needing you,
         // so it goes up first when there's room; the waiting ones are shown
         // for a while; then they all finish.
-        var steps: [(Double, () -> Void)] = [(0, { [weak self] in self?.pet.setClaude(.working) })]
+        var steps: [(Double, () -> Void)] = []
+        // One step at a time: a long list of closures is too much for some compilers to type-check.
+        func then(_ after: Double, _ act: @escaping () -> Void) { steps.append((after, act)) }
+        let asks = "[event] Claude Code needs the user's OK to go on, in \"Level 3\" (in game): Bash: npm run build "
+            + "Tell them, in one short line."
+        let done = "[event] Claude Code just finished in \"Login page\" (in my-app). Its last words: "
+            + "\"The login page remembers you now.\" Tell the user it's done, in one short line."
+        then(0) { [weak self] in self?.pet.setClaude(.working) }
         for id in ["a", "b", "c", "d", "e", "f"] {
-            steps.append((1, { [weak self] in self?.board.started(entry(id)) }))
+            then(1) { [weak self] in self?.board.started(entry(id)) }
         }
-        steps += [
-            (8, { [weak self] in
-                self?.board.started(entry("e", needs: true))
-                self?.announce("[event] Claude Code needs the user's OK to go on, in \"Level 3\" (in game): "
-                               + "Bash: npm run build Tell them, in one short line.",
-                               plainly: "game · Level 3 needs your OK: Bash: npm run build")
-            }),
-            (5, { [weak self] in self?.board.toggleExpanded() }),
-            (5, { [weak self] in self?.board.toggleExpanded() }),
-            (1, { [weak self] in self?.pet.shipped() }),
-            (4, { [weak self] in
-                self?.board.finished("a")
-                self?.announce("[event] Claude Code just finished in \"Login page\" (in my-app). Its last words: "
-                               + "\"The login page remembers you now.\" Tell the user it's done, in one short line.",
-                               plainly: "my-app · Login page is done!")
-            }),
-            (12, { [weak self] in self?.board.started(entry("e")); self?.board.finished("c") }),
-            (12, { [weak self] in self?.board.finished("b") }),
-            (12, { [weak self] in self?.board.finished("e") }),
-            (8, { [weak self] in self?.board.finished("d") }),
-            (8, { [weak self] in self?.board.finished("f") }),
-            (4, { [weak self] in self?.pet.setClaude(.idle, quietly: true) }),
-            (8, { [weak self] in
-                guard let self else { return }
-                self.boardDemo = false
-                self.chat.brain.sessionID = realSession
-                self.chat.brain.restart()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                    Brain.forget(throwaway)
-                    if ProcessInfo.processInfo.environment["CLAWD_RECORD"] != nil { NSApp.terminate(nil) }
-                }
-            }),
-        ]
+        then(8) { [weak self] in
+            self?.board.started(entry("e", needs: true))
+            self?.announce(asks, plainly: "game · Level 3 needs your OK: Bash: npm run build")
+        }
+        then(5) { [weak self] in self?.board.toggleExpanded() }
+        then(5) { [weak self] in self?.board.toggleExpanded() }
+        then(1) { [weak self] in self?.pet.shipped() }
+        then(4) { [weak self] in
+            self?.board.finished("a")
+            self?.announce(done, plainly: "my-app · Login page is done!")
+        }
+        then(12) { [weak self] in
+            self?.board.started(entry("e"))
+            self?.board.finished("c")
+        }
+        then(12) { [weak self] in self?.board.finished("b") }
+        then(12) { [weak self] in self?.board.finished("e") }
+        then(8) { [weak self] in self?.board.finished("d") }
+        then(8) { [weak self] in self?.board.finished("f") }
+        then(4) { [weak self] in self?.pet.setClaude(.idle, quietly: true) }
+        then(8) { [weak self] in
+            guard let self else { return }
+            self.boardDemo = false
+            self.chat.brain.sessionID = realSession
+            self.chat.brain.restart()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                Brain.forget(throwaway)
+                if ProcessInfo.processInfo.environment["CLAWD_RECORD"] != nil { NSApp.terminate(nil) }
+            }
+        }
         var at = 0.0
         for (after, act) in steps {
             at += after
