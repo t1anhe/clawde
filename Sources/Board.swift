@@ -58,8 +58,13 @@ final class Board {
     }
 
     /// The most rows it holds; more sessions wait their turn, counted on a
-    /// tab on its top.
+    /// tab on its top that shows them all when clicked.
     static let capacity = 3
+    /// A session only goes up once it's been at work this long: a question
+    /// answered in a moment doesn't send Clawd over.
+    static let settle = 4.0
+    /// The most waiting sessions it shows opened up.
+    static let mostShown = 10
 
     /// Which board, or nil for none.
     var style: Style? {
@@ -84,8 +89,12 @@ final class Board {
     }
 
     private var rows: [Row] = []
-    /// Sessions to write up when there's room, oldest first.
+    /// Sessions to write up when there's room, oldest first, and when each got going.
     private var waiting: [Entry] = []
+    private var waitingSince: [String: Double] = [:]
+    /// Showing every session waiting its turn, in dots over the rows, till
+    /// the tab's clicked again.
+    private(set) var expanded = false
     /// Sessions on the board that are done, to rub out.
     private var done: Set<String> = []
     /// The chore Clawd is on.
@@ -107,8 +116,8 @@ final class Board {
     private var home: (bodyLeft: CGFloat, screen: NSRect)?
 
     init() {
-        panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 10, height: 10),
-                        styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
+        panel = BoardPanel(contentRect: NSRect(x: 0, y: 0, width: 10, height: 10),
+                           styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
@@ -135,16 +144,28 @@ final class Board {
         if let i = rows.firstIndex(where: { $0.entry.id == entry.id }) {
             if rows[i].entry != entry { rows[i].entry = entry; dirty = true }
         } else if let i = waiting.firstIndex(where: { $0.id == entry.id }) {
-            waiting[i] = entry
+            if waiting[i] != entry { waiting[i] = entry; dirty = true }
         } else {
-            waiting.append(entry)
-            dirty = true
+            wait(entry)
         }
+    }
+
+    private func wait(_ entry: Entry) {
+        waiting.append(entry)
+        waitingSince[entry.id] = ProcessInfo.processInfo.systemUptime
+        dirty = true
+    }
+
+    /// The sessions waiting that have been at work long enough to go up.
+    private var ready: [Entry] {
+        let now = ProcessInfo.processInfo.systemUptime
+        return waiting.filter { now - (waitingSince[$0.id] ?? now) >= Self.settle }
     }
 
     /// A session is done: rubbed out, or never written up.
     func finished(_ id: String) {
         waiting.removeAll { $0.id == id }
+        waitingSince[id] = nil
         if rows.contains(where: { $0.entry.id == id }) { done.insert(id) }
         dirty = true
     }
@@ -164,17 +185,22 @@ final class Board {
                 done.insert(id)
             }
         }
+        let before = waiting
         waiting = waiting.compactMap { byID[$0.id] ?? (known.contains($0.id) ? $0 : nil) }
+        if waiting != before { dirty = true }
         for entry in active where !rows.contains(where: { $0.entry.id == entry.id }) && !waiting.contains(where: { $0.id == entry.id }) {
-            waiting.append(entry)
+            wait(entry)
         }
+        waitingSince = waitingSince.filter { id, _ in waiting.contains { $0.id == id } }
     }
 
     /// Everything off the board at once.
     func clear() {
         rows.removeAll()
         waiting.removeAll()
+        waitingSince.removeAll()
         done.removeAll()
+        expanded = false
         dirty = true
     }
 
@@ -183,11 +209,12 @@ final class Board {
     /// Whether there's something for Clawd to do at the board.
     var hasChores: Bool {
         guard style != nil, busy == nil, home != nil else { return false }
-        return rows.contains { done.contains($0.entry.id) } || (rows.count < Self.capacity && !waiting.isEmpty)
+        return rows.contains { done.contains($0.entry.id) } || (rows.count < Self.capacity && !ready.isEmpty)
     }
 
     /// The next thing for Clawd to do at the board, now its own: rubbing a
-    /// done session out comes first, to make room; then writing the next one up.
+    /// done session out comes first, to make room; then writing the next one
+    /// up, one that needs you before the rest.
     func nextChore() -> Chore? {
         guard hasChores, let style else { return nil }
         if let row = rows.filter({ done.contains($0.entry.id) }).min(by: { $0.target < $1.target }) {
@@ -197,7 +224,10 @@ final class Board {
             busy = chore
             return chore
         }
-        let entry = waiting.removeFirst()
+        let candidates = ready
+        guard let entry = candidates.first(where: \.needsYou) ?? candidates.first else { return nil }
+        waiting.removeAll { $0.id == entry.id }
+        waitingSince[entry.id] = nil
         for i in rows.indices { rows[i].target += 1 }
         rows.append(Row(entry: entry, slot: 0, target: 0, reveal: 0, shown: style != .cork))
         let letters = Double(entry.project.count + entry.title.count)
@@ -243,6 +273,20 @@ final class Board {
                 for j in rows.indices where rows[j].target > gone.target { rows[j].target -= 1 }
             }
         }
+        dirty = true
+    }
+
+    /// A click on the board, in its view: on the tab, the sessions waiting
+    /// are shown, or folded away again.
+    func clicked(at point: NSPoint) {
+        guard let tab = tabRect(), tab.contains(point) else { return }
+        toggleExpanded()
+    }
+
+    /// Shows every session waiting, or folds them away again.
+    func toggleExpanded() {
+        guard expanded || (!waiting.isEmpty && rows.count >= Self.capacity) else { return }
+        expanded.toggle()
         dirty = true
     }
 
@@ -305,7 +349,8 @@ final class Board {
             rows[i].slot = abs(to - rows[i].slot) <= step ? to : rows[i].slot + (to > rows[i].slot ? step : -step)
             dirty = true
         }
-        let wantRoom = Double((rows.map(\.target).max() ?? -1) + 1)
+        if expanded, waiting.isEmpty { expanded = false; dirty = true }
+        let wantRoom = Double((rows.map(\.target).max() ?? -1) + 1 + (expanded ? min(waiting.count, Self.mostShown) : 0))
         if room != wantRoom {
             let step = 5.0 * dt
             room = abs(wantRoom - room) <= step ? wantRoom : room + (wantRoom > room ? step : -step)
@@ -331,8 +376,10 @@ final class Board {
             view.frame = NSRect(origin: .zero, size: frame.window.size)
             dirty = true
         }
-        // Just behind Clawd.
+        // Just behind Clawd, and clicked through but for its tab.
         if !panel.isVisible { panel.order(.below, relativeTo: window) }
+        let overTab = tabRect().map { $0.offsetBy(dx: panel.frame.minX, dy: panel.frame.minY).contains(NSEvent.mouseLocation) } ?? false
+        if panel.ignoresMouseEvents == overTab { panel.ignoresMouseEvents = !overTab }
         if dirty {
             dirty = false
             view.needsDisplay = true
@@ -371,7 +418,9 @@ final class Board {
     }
 
     private func innerSize(_ style: Style) -> NSSize {
-        let widest = rows.map { textWidth($0.entry) }.max() ?? 0
+        var widths = rows.map { textWidth($0.entry) }
+        if expanded { widths += waiting.prefix(Self.mostShown).map(textWidth) }
+        let widest = widths.max() ?? 0
         let snap = { (v: CGFloat) in (v * 2).rounded(.up) / 2 }
         if style == .cork {
             let note = snap(widest + 1)
@@ -457,17 +506,65 @@ final class Board {
                 blue: CGFloat(value & 0xFF) / 255, alpha: 1)
     }
 
+    /// Where the board's parts are, in units, the window's bottom left at the origin.
+    private struct Geometry {
+        var x0, frame, legs: CGFloat
+        var inner, outer: NSSize
+        /// The writing surface's bottom left, and its top.
+        var sx, sy, top: CGFloat
+    }
+
+    private func geometry(_ style: Style) -> Geometry {
+        let frame = frameWidth(style)
+        let inner = innerSize(style)
+        let x0 = Self.margin
+        return Geometry(x0: x0, frame: frame, legs: Self.surface - frame, inner: inner,
+                        outer: NSSize(width: inner.width + 2 * frame, height: inner.height + 2 * frame),
+                        sx: x0 + frame, sy: Self.surface, top: Self.surface + inner.height)
+    }
+
+    /// The tab over the board's top right, if it's showing: how many more
+    /// sessions are waiting, with a red ! if one of them needs you; or, with
+    /// them all shown, a dash to fold them away. Its box in units, and its
+    /// pixels (x right and y down in font pixels, and whether each is the !).
+    private func tabBox(_ g: Geometry) -> (rect: NSRect, pixels: [(x: Int, y: Int, red: Bool)])? {
+        var pixels: [(x: Int, y: Int, red: Bool)] = []
+        var width = 0
+        if expanded {
+            for x in 0..<7 {
+                for y in 6...7 { pixels.append((x, y, false)) }
+            }
+            width = 7
+        } else {
+            guard !waiting.isEmpty, rows.count >= Self.capacity else { return nil }
+            let label = BoardFont.line("+\(waiting.count)")
+            pixels = label.lit.map { ($0.x, $0.y, false) }
+            width = label.width
+            if waiting.contains(where: \.needsYou) {
+                let bang = BoardFont.line("!")
+                pixels += bang.lit.map { ($0.x + width + 3, $0.y, true) }
+                width += 3 + bang.width
+            }
+        }
+        let snap = { (v: CGFloat) in (v * 2).rounded(.up) / 2 }
+        let w = snap(CGFloat(width) * textPixel / unit + 1), h = snap(12 * textPixel / unit + 1)
+        return (NSRect(x: g.x0 + g.outer.width - 1.5 - w, y: g.legs + g.outer.height, width: w, height: h), pixels)
+    }
+
+    /// Where a click opens or folds the tab, in the view's points: the tab
+    /// and a little round it.
+    private func tabRect() -> NSRect? {
+        guard let style, presence == 1, let box = tabBox(geometry(style)) else { return nil }
+        let r = box.rect.insetBy(dx: -0.5, dy: -0.5)
+        return NSRect(x: r.minX * unit, y: r.minY * unit, width: r.width * unit, height: r.height * unit)
+    }
+
     /// Draws the board into its view (y up, the window's bottom left at the origin).
     func draw() {
         guard let style, let cg = NSGraphicsContext.current?.cgContext else { return }
         let painter = Painter(cg: cg, unit: unit, dots: presence < 1 ? (presence < 0.5 ? 2 : 1) : 0)
-        let frame = frameWidth(style)
-        let inner = innerSize(style)
-        let x0 = Self.margin
-        let legs = Self.surface - frame
-        let outer = NSSize(width: inner.width + 2 * frame, height: inner.height + 2 * frame)
-        let sx = x0 + frame, sy = Self.surface
-        let top = sy + inner.height
+        let g = geometry(style)
+        let (x0, legs, inner, outer, sx, sy, top) = (g.x0, g.legs, g.inner, g.outer, g.sx, g.sy, g.top)
         let holding = busy.map(\.kind)
 
         switch style {
@@ -527,38 +624,59 @@ final class Board {
         }
 
         let tp = textPixel
+        /// A row's place: its words' left and middle height, at `slot` rows up.
+        func place(_ slot: CGFloat) -> (x: CGFloat, middle: CGFloat, bottom: CGFloat) {
+            if style == .cork {
+                let bottom = sy + Self.pad + slot * (Self.noteHeight + Self.noteGap)
+                return (sx + Self.pad + 0.5, bottom + Self.noteHeight / 2, bottom)
+            }
+            let bottom = sy + Self.pad + slot * (Self.line + Self.gap)
+            return (sx + Self.pad, bottom + Self.line / 2, bottom)
+        }
         for row in rows {
             let words = Self.words(row.entry)
-            let slot = CGFloat(row.slot)
+            let at = place(CGFloat(row.slot))
             if style == .cork {
                 guard row.shown else { continue }
-                let bottom = sy + Self.pad + slot * (Self.noteHeight + Self.noteGap)
                 let noteX = sx + Self.pad
                 let noteW = ((CGFloat(words.width) * tp / unit + 1) * 2).rounded(.up) / 2
-                painter.fill(noteX, bottom, noteW, Self.noteHeight, Self.cream)
-                painter.fill(noteX, bottom, noteW, 0.5, Self.paperEdge)
+                painter.fill(noteX, at.bottom, noteW, Self.noteHeight, Self.cream)
+                painter.fill(noteX, at.bottom, noteW, 0.5, Self.paperEdge)
                 let pinX = ((noteX + noteW / 2 - 0.5) * 2).rounded() / 2
                 let needs = row.entry.needsYou
-                painter.fill(pinX, bottom + Self.noteHeight - 0.5, 1, 1, needs ? Self.salmon : Self.amber)
-                painter.fill(pinX, bottom + Self.noteHeight - 0.5, 1, 0.5, needs ? Self.salmonDark : Self.amberDark)
-                drawWords(words, row: row, x: noteX + 0.5, middle: bottom + Self.noteHeight / 2, style: style, painter: painter)
-            } else {
-                let bottom = sy + Self.pad + slot * (Self.line + Self.gap)
-                drawWords(words, row: row, x: sx + Self.pad, middle: bottom + Self.line / 2, style: style, painter: painter)
+                painter.fill(pinX, at.bottom + Self.noteHeight - 0.5, 1, 1, needs ? Self.salmon : Self.amber)
+                painter.fill(pinX, at.bottom + Self.noteHeight - 0.5, 1, 0.5, needs ? Self.salmonDark : Self.amberDark)
+            }
+            drawWords(words, row: row, x: at.x, middle: at.middle, style: style, painter: painter)
+        }
+        // Opened up: every session still waiting its turn over the rows, in
+        // dots, not yet written.
+        if expanded {
+            for (k, entry) in waiting.prefix(Self.mostShown).enumerated() {
+                let at = place(CGFloat(rows.count + k))
+                drawWaiting(Self.words(entry), x: at.x, middle: at.middle, style: style, painter: painter)
             }
         }
 
-        // More sessions than rows: how many more, on a tab over the top.
-        let more = waiting.count
-        if more > 0, rows.count >= Self.capacity {
-            let tag = BoardFont.line("+\(more)")
-            let snap = { (v: CGFloat) in (v * 2).rounded(.up) / 2 }
-            let tabW = snap(CGFloat(tag.width) * tp / unit + 1), tabH = snap(12 * tp / unit + 1)
-            let tabX = x0 + outer.width - 1.5 - tabW
-            painter.fill(tabX, legs + outer.height, tabW, tabH, style == .white ? Self.gray : Self.wood)
-            painter.text(tag.lit.map { ($0.x, $0.y) }, x: tabX + 0.5, top: legs + outer.height + tabH - 0.5,
-                         pixel: tp, color: style == .white ? Self.ink : Self.cream)
+        if let tab = tabBox(g) {
+            painter.fill(tab.rect.minX, tab.rect.minY, tab.rect.width, tab.rect.height, style == .white ? Self.gray : Self.wood)
+            let label = style == .white ? Self.ink : Self.cream
+            for red in [false, true] {
+                painter.text(tab.pixels.filter { $0.red == red }.map { ($0.x, $0.y) }, x: tab.rect.minX + 0.5,
+                             top: tab.rect.maxY - 0.5, pixel: tp, color: red ? Self.salmon : label)
+            }
         }
+    }
+
+    /// A session waiting its turn, shown with the board opened up: its words
+    /// in dots, every other pixel, as the film draws what's dim; its ! whole.
+    private func drawWaiting(_ words: Words, x: CGFloat, middle: CGFloat, style: Style, painter: Painter) {
+        let tp = textPixel
+        let top = middle + 6 * tp / unit
+        let dim = style == .chalk ? Self.chalkDim : Self.grayDark
+        painter.text(words.pixels.filter { $0.part != .bang && ($0.x + $0.y) % 2 == 0 }.map { ($0.x, $0.y) },
+                     x: x, top: top, pixel: tp, color: dim)
+        painter.text(words.pixels.filter { $0.part == .bang }.map { ($0.x, $0.y) }, x: x, top: top, pixel: tp, color: Self.salmon)
     }
 
     /// A row's words, their line's left at `x` and centred on `middle`,
@@ -655,6 +773,19 @@ final class BoardView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         board?.draw()
     }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        board?.clicked(at: convert(event.locationInWindow, from: nil))
+    }
+}
+
+/// The board's window: it never takes the keyboard, so a click on its tab
+/// leaves focus with whatever you were typing in.
+final class BoardPanel: NSPanel {
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
 }
 
 /// Fusion Pixel's 12-pixel proportional font (SIL Open Font License,

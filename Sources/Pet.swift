@@ -46,6 +46,8 @@ final class Pet {
         case errand(Board.Chore?)
         /// At the board, playing the chore's clip until then.
         case chore(Board.Chore, since: Double, until: Double)
+        /// Just done at the board, staying on a moment in case there's more.
+        case linger(until: Double)
         /// Going round a clip's loop since then for as long as its reason
         /// lasts: the headphones while music plays, thinking while Claude
         /// waits on you. Let go, it finishes the time round and its outro.
@@ -595,13 +597,19 @@ final class Pet {
         case .chore(let chore, let since, let until):
             guard let clip = Animations.all[chore.clip], clock < until else {
                 board?.finish(chore)
-                // The next one, or home.
-                if let next = board?.nextChore() { go(to: next) } else { behavior = .errand(nil) }
+                // The next one, or a moment's wait for one before going back.
+                if let next = board?.nextChore() { go(to: next) } else { behavior = .linger(until: clock + 1.5) }
                 break
             }
             let t = clock - since
             board?.progress(chore, clip.loopProgress(at: t, of: until - since),
                             touched: clip.touch.map { clip.index(at: t, of: until - since) >= $0 } ?? false)
+        case .linger(let until):
+            if let chore = board?.nextChore() {
+                go(to: chore)
+            } else if clock > until {
+                behavior = .errand(nil)
+            }
         case .idle(let until):
             if let chore = board?.nextChore() {
                 go(to: chore)
@@ -741,6 +749,7 @@ final class Pet {
         case .perform(let name, _, _): doing = "perform \(name)"
         case .errand(let chore): doing = chore.map { "to the board: \($0.clip)" } ?? "back from the board"
         case .chore(let chore, _, _): doing = "board: \(chore.clip)"
+        case .linger: doing = "at the board"
         case .hold(let name, _): doing = "hold \(name)"
         case .sleep: doing = sleptOnPurpose ? "sleep (asked)" : "sleep"
         }
@@ -837,6 +846,8 @@ final class Pet {
                 if let clip = Animations.all[chore.clip] {
                     pose.action = .clip(chore.clip, clip.index(at: clock - since, of: until - since))
                 }
+                pose.facing = facing
+            case .linger:
                 pose.facing = facing
             case .walk, .errand:
                 pose.action = clock < landedUntil ? .land : .walk(frame(walkFPS, of: 4))

@@ -411,8 +411,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         sense()
     }
 
-    /// Made-up sessions on the board, for trying it out (--board-demo): three
-    /// get going and a fourth waits its turn, one needs you, then they finish.
+    /// Made-up sessions on the board, for trying it out (--board-demo): six
+    /// get going, three wait their turn, one of them needs you, then they finish.
     private var boardDemo = false
 
     private func startBoardDemo() {
@@ -424,22 +424,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
            let style = Board.Style(rawValue: arguments[at + 1]) {
             board.style = style
         }
-        let a = Board.Entry(id: "a", project: "my-app", title: "Login page", needsYou: false)
-        let b = Board.Entry(id: "b", project: "website", title: "Dark mode", needsYou: false)
-        let c = Board.Entry(id: "c", project: "api", title: "Rate limits", needsYou: false)
-        let d = Board.Entry(id: "d", project: "docs", title: "Typos", needsYou: false)
-        var needy = b
-        needy.needsYou = true
-        let steps: [(Double, () -> Void)] = [
-            (0, { [weak self] in self?.pet.setClaude(.working); self?.board.started(a) }),
-            (1, { [weak self] in self?.board.started(b) }),
-            (1, { [weak self] in self?.board.started(c) }),
-            (1, { [weak self] in self?.board.started(d) }),
-            (14, { [weak self] in self?.board.started(needy) }),
-            (4, { [weak self] in self?.board.finished("a") }),
-            (12, { [weak self] in self?.board.started(b); self?.board.finished("c") }),
-            (8, { [weak self] in self?.board.finished("b") }),
+        let entries = [("a", "my-app", "Login page"), ("b", "website", "Dark mode"), ("c", "api", "Rate limits"),
+                       ("d", "docs", "Typos"), ("e", "game", "Level 3"), ("f", "blog", "New post")]
+            .map { Board.Entry(id: $0.0, project: $0.1, title: $0.2, needsYou: false) }
+        func entry(_ id: String, needs: Bool = false) -> Board.Entry {
+            var entry = entries.first { $0.id == id }!
+            entry.needsYou = needs
+            return entry
+        }
+        // Six get going; three go up and three wait, one of them needing you,
+        // so it goes up first when there's room; the waiting ones are shown
+        // for a while; then they all finish.
+        var steps: [(Double, () -> Void)] = [(0, { [weak self] in self?.pet.setClaude(.working) })]
+        for id in ["a", "b", "c", "d", "e", "f"] {
+            steps.append((1, { [weak self] in self?.board.started(entry(id)) }))
+        }
+        steps += [
+            (8, { [weak self] in self?.board.started(entry("e", needs: true)) }),
+            (5, { [weak self] in self?.board.toggleExpanded() }),
+            (5, { [weak self] in self?.board.toggleExpanded() }),
+            (2, { [weak self] in self?.board.finished("a") }),
+            (12, { [weak self] in self?.board.started(entry("e")); self?.board.finished("c") }),
+            (12, { [weak self] in self?.board.finished("b") }),
+            (12, { [weak self] in self?.board.finished("e") }),
             (8, { [weak self] in self?.board.finished("d") }),
+            (8, { [weak self] in self?.board.finished("f") }),
             (4, { [weak self] in self?.pet.setClaude(.idle, quietly: true) }),
             (8, { [weak self] in
                 self?.boardDemo = false

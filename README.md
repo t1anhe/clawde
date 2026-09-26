@@ -24,7 +24,7 @@ A little Clawd who lives on your Mac, just above the Dock, and acts out what you
 | waiting for your answer | waves at you with a big **!** |
 | done | cheers: confetti, sunglasses or a heart |
 
-**A board for your sessions.** While sessions work, a board stands beside Clawd with a row for each, its project and title. Clawd walks over and writes each one up as it starts, and rubs it out (jumping for the top row) when it's done. A red **!** marks one waiting on you, and a tab counts any beyond three. Pick a chalkboard, a whiteboard or a cork board of pinned notes under **Bulletin Board** in the menu, or no board.
+**A board for your sessions.** While sessions work, a board stands beside Clawd with a row for each, its project and title. Clawd walks over and writes each one up as it starts, and rubs it out (jumping for the top row) when it's done. A red **!** marks one waiting on you, and a tab counts any beyond three (click it to see them all, and again to fold them away); one that needs you goes up first when there's room. Pick a chalkboard, a whiteboard or a cork board of pinned notes under **Bulletin Board** in the menu, or no board.
 
 **To the moment, with hooks.** The first time it runs, Clawde offers to add a few hooks to Claude Code's settings (`~/.claude/settings.json`, backed up first). With them Clawd knows the moment a session needs your permission, asks you something or finishes, and tells you in its bubble. The hooks only add a line to `~/Library/Application Support/Clawde/events.jsonl` on your Mac (your prompts and Claude's last words included; it's kept under 4 MB and never sent anywhere). Take them out with **Use Claude Code Hooks** in the menu.
 
