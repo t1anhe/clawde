@@ -125,6 +125,8 @@ final class Pet {
     private var turnSince = 0.0
     private var turnWorked = false
     private var ignoresNextUp = false
+    /// When the button was found let go while Clawd was still carried.
+    private var lettingGoSince: Double?
     /// Thrown hard enough to land dizzy.
     private var dizzyOnLanding = false
     /// The top of Clawd's head in the pose last drawn, in units.
@@ -409,6 +411,8 @@ final class Pet {
     }
 
     func mouseDragged() {
+        // The second click of a double-click wobbling isn't a pick-up.
+        guard !ignoresNextUp else { return }
         let mouse = NSEvent.mouseLocation
         if !isCarried, hypot(mouse.x - x - grab.x, mouse.y - y - grab.y) < 3 { return }
         isCarried = true
@@ -496,6 +500,22 @@ final class Pet {
         let ground = visible.minY
         walkable = minX...max(minX, maxX)
 
+        // Carried with the button let go a while and no mouse-up (it went to
+        // another window): it's dropped.
+        if isCarried, NSEvent.pressedMouseButtons & 1 == 0 {
+            let since = lettingGoSince ?? clock
+            lettingGoSince = since
+            if clock - since > 0.25 {
+                isCarried = false
+                isPressed = false
+                lettingGoSince = nil
+                vx = 0
+                vy = 0
+                behavior = .idle(until: clock + 1)
+            }
+        } else {
+            lettingGoSince = nil
+        }
         if isCarried {
             isAirborne = true
         } else if y > ground + 0.5 || vy > 0 {
