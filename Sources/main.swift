@@ -113,7 +113,8 @@ if arguments.count >= 2, arguments[1] == "--claude-state" {
     var notes: [String: ClaudeWatcher.Notes] = [:]
     for line in (try? String(contentsOf: eventsFile, encoding: .utf8))?.split(separator: "\n") ?? [] {
         guard let entry = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any],
-              let hook = entry["hook"] as? [String: Any], let id = hook["session_id"] as? String
+              let hook = entry["hook"] as? [String: Any], let id = hook["session_id"] as? String,
+              !ClaudeWatcher.isClawdes(hook)
         else { continue }
         let at = Date(timeIntervalSince1970: (entry["at"] as? NSNumber)?.doubleValue ?? 0)
         ClaudeWatcher.note(hook, at: at, in: &notes[id, default: ClaudeWatcher.Notes()])

@@ -75,6 +75,9 @@ final class Brain {
             "--include-partial-messages", "--verbose",
             "--tools", "", "--strict-mcp-config", "--disable-slash-commands",
             "--model", model, "--system-prompt", systemPrompt,
+            // No hooks for Clawd's own turns: Clawde's would take them for a
+            // session of yours at work, and yours aren't meant for it.
+            "--settings", #"{"disableAllHooks":true}"#,
         ]
         arguments += Self.transcriptExists(sessionID) ? ["--resume", sessionID] : ["--session-id", sessionID]
         // Haiku 4.5 takes no effort setting; the others answer faster at low.

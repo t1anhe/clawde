@@ -260,7 +260,8 @@ final class ClaudeWatcher {
         eventsRead = size
         for line in data.split(separator: UInt8(ascii: "\n")) {
             guard let entry = (try? JSONSerialization.jsonObject(with: Data(line))) as? [String: Any],
-                  let hook = entry["hook"] as? [String: Any], let id = hook["session_id"] as? String
+                  let hook = entry["hook"] as? [String: Any], let id = hook["session_id"] as? String,
+                  !Self.isClawdes(hook)
             else { continue }
             let seconds = (entry["at"] as? NSNumber)?.doubleValue ?? Date().timeIntervalSince1970
             Self.note(hook, at: Date(timeIntervalSince1970: seconds), in: &notes[id, default: Notes()])
@@ -270,6 +271,15 @@ final class ClaudeWatcher {
             try? handle.truncate(atOffset: 0)
             eventsRead = 0
         }
+    }
+
+    /// Whether a hook came from Clawd's own conversation (its Brain is a
+    /// Claude Code process too): taken for one of your sessions, its every
+    /// reply would look like work started and finished, and telling you of
+    /// that would make it reply again, round and round.
+    nonisolated static func isClawdes(_ hook: [String: Any]) -> Bool {
+        (hook["cwd"] as? String)?.hasPrefix(Mind.folder.path) == true
+            || (hook["transcript_path"] as? String)?.contains("Application-Support-Clawde") == true
     }
 
     /// Takes note of one hook's input.
