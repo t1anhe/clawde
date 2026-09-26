@@ -245,19 +245,161 @@ def glow(f, cells, reach=1.5, color=CREAM):
             dot(f, px, py, color)
 
 
+class Lean:
+    """Clawd tipped `angle` degrees anticlockwise the way pixel art tips a
+    small figure, not by turning each pixel: its columns step up (or down),
+    then its rows step sideways, the steps spread evenly along each edge.
+    Every edge steps a pixel or two, as the film's Clawd does when it
+    rocks, and no corner is left with a lone pixel sticking out, as it is
+    when the steps fall where they may. A step down a side goes where a
+    claw (`claws`, their upright rectangles) hides it rather than where it
+    would leave a stub of edge a pixel or two long beside one. Small parts
+    (claws, eyes, cups) are too small to step and move with the body in one
+    piece. Tipped about a pivot off the body (rocking in a boat), the whole
+    figure moves too."""
+
+    def __init__(self, angle, left, bottom, width, height, pivot, claws=()):
+        self.angle, self.left, self.right, self.bottom = angle, left, left + width, bottom
+        s = math.sin(math.radians(abs(angle)))
+        w, h = round(width * 2), round(height * 2)
+        self.n, m = round(w * s), round(h * s)
+        self.columns = [round(k * w / (self.n + 1)) for k in range(1, self.n + 1)]
+        # Each side's rows once its column has stepped, and those its claw covers.
+        sides = []
+        for edge in (0, w - 1):
+            up = self.rise(edge)
+            covered = set()
+            for x, y, _, ch in claws:
+                if (x >= self.right) == (edge > 0):
+                    j = round((y - bottom) * 2) + up
+                    covered |= set(range(j, j + round(ch * 2)))
+            sides.append((up, up + h - 1, covered))
+        self.rows = []
+        for k in range(1, m + 1):
+            ideal = round(k * h / (m + 1))
+            low = self.rows[-1] + 1 if self.rows else 1
+            self.rows.append(min(range(max(low, ideal - 3), ideal + 4),
+                                 key=lambda r: (abs(r - ideal) + sum(self.stub(r, *side) for side in sides),
+                                                abs(r - ideal))))
+        middle = (left + width / 2, bottom)
+        x, y = turn_point(middle, angle, pivot)
+        self.move = (snap(x - middle[0]), snap(y - middle[1]))
+        # Where the body's sides got to in each row, for parts beside it.
+        self.edges = {}
+
+    def rise(self, i):
+        """How many cells the body's column `i` goes up."""
+        up = sum(1 for c in self.columns if i >= c)
+        return (up if self.angle > 0 else self.n - up) - self.n // 2
+
+    @staticmethod
+    def stub(r, low, high, covered):
+        """How badly a step between rows r - 1 and r shows on a side whose
+        rows run from `low` to `high`, some `covered` by a claw: not at all
+        off the side or at a claw, badly where it leaves a stub of edge
+        shorter than three rows."""
+        if r <= low or r > high or r - 1 in covered or r in covered:
+            return 0
+        a, b = r - 1, r
+        while a - 1 >= low and a - 1 not in covered:
+            a -= 1
+        while b + 1 <= high and b + 1 not in covered:
+            b += 1
+        return 2 * max(0, 3 - min(r - a, b - r + 1))
+
+    def offset(self, x, y, up=None):
+        """How far the half-unit cell at (x, y) goes: up or down with its
+        column (or `up` cells), then over with the row that has taken it to."""
+        if up is None:
+            up = self.rise(round((x - self.left) * 2))
+        over = sum(1 for r in self.rows if round((y - self.bottom) * 2) + up >= r)
+        return (-over if self.angle > 0 else over) / 2 + self.move[0], up / 2 + self.move[1]
+
+    def cells(self, cells):
+        """Cells of the upright figure, each where the lean takes it."""
+        out = set()
+        for x, y in cells:
+            ox, oy = self.offset(x, y)
+            out.add((x + ox, y + oy))
+        return out
+
+    def body(self, cells):
+        """The body's cells leant, taking note of where its outermost
+        columns went, row by row."""
+        out = set()
+        last = max(round((x - self.left) * 2) for x, _ in cells)
+        for x, y in cells:
+            ox, oy = self.offset(x, y)
+            out.add((x + ox, y + oy))
+            i = round((x - self.left) * 2)
+            if i in (0, last):
+                self.edges.setdefault(y + oy, {})[i == last] = x + ox + (0.5 if i == last else 0)
+        return out
+
+    def shift(self, cells):
+        """How far a small part goes in one piece. On the body it goes up
+        or down with the lowest of the columns it's on, so nothing on the
+        face pokes through the top of the head, and over with its middle
+        row; beside the body it goes with the side it's at, over only as far
+        as keeps it against the body in every row they share."""
+        xs, ys = [x for x, _ in cells], [y for _, y in cells]
+        x0, x1 = min(xs), max(xs) + 0.5
+        last = round((self.right - self.left) * 2) - 1
+        first, end = (min(max(round((v - self.left) * 2), 0), last) for v in (x0, x1 - 0.5))
+        up = min(self.rise(i) for i in range(first, end + 1))
+        ox, oy = self.offset(x0, math.floor(min(ys) + max(ys) + 0.5) / 2, up)
+        if x1 <= self.left or x0 >= self.right:
+            right = x0 >= self.right
+            edges = [self.edges[y + oy][right] for y in set(ys) if right in self.edges.get(y + oy, {})]
+            if edges:
+                ox = (min(edges) - self.right) if right else (max(edges) - self.left)
+        return ox, oy
+
+    def piece(self, cells):
+        """A small part moved in one piece (see shift)."""
+        ox, oy = self.shift(cells)
+        return {(x + ox, y + oy) for x, y in cells}
+
+    def point(self, x, y):
+        """A point of the upright figure, where the lean takes it."""
+        ox, oy = self.offset(math.floor(x * 2) / 2, math.floor(y * 2) / 2)
+        return x + ox, y + oy
+
+
 class Head:
     """Where a drawn Clawd's head ended up, to put things on it."""
 
-    def __init__(self, top, tilt, pivot, middle):
-        self.top, self.tilt, self.pivot, self.middle = top, tilt, pivot, middle
+    def __init__(self, top, lean, middle):
+        self.top, self.lean, self.middle = top, lean, middle
+        self.holds = []
 
     def at(self, x, y):
         """A point of the upright body, where the tilt has taken it."""
-        return turn_point((x, y), self.tilt, self.pivot)
+        return self.lean.point(x, y)
 
     def cells(self, x, y, w, h):
-        """A rectangle on the upright body, turned with it."""
-        return rect_cells(x, y, w, h, self.tilt, self.pivot)
+        """A small rectangle on the upright body, moved with it in one piece."""
+        return self.lean.piece(rect_cells(x, y, w, h))
+
+    def piece(self, cells):
+        """Cells of something small on the upright body, moved with it in one piece."""
+        return self.lean.piece(cells)
+
+    def held(self, x, y):
+        """A point of something held in a claw, moved with the nearest claw."""
+        if not self.holds:
+            return self.at(x, y)
+
+        def distance(rect):
+            rx, ry, rw, rh = rect
+            return math.hypot(max(rx - x, 0, x - rx - rw), max(ry - y, 0, y - ry - rh))
+
+        _, (ox, oy) = min(self.holds, key=lambda hold: distance(hold[0]))
+        return x + ox, y + oy
+
+    def turn(self, cells):
+        """Cells of something on the upright body, stepped with it."""
+        return self.lean.cells(cells)
 
 
 def eye(f, x, y, style, middle=4.0):
@@ -293,10 +435,10 @@ def clawd(f, bottom=2.0, height=6.0, width=8.0, dx=0.0, lift=0.0, tilt=0.0, arms
     The body stands `bottom` up on its legs, `height` tall and `width` wide
     (squashed out past its feet, half a unit each side a unit), swayed `dx` over
     its feet (the knees bend to follow) or hopped `lift` off the ground.
-    `tilt` turns it that many degrees anticlockwise about the middle of its
-    underside, claws, eyes and all, and the legs reach down to the ground
-    from wherever the body has got to: its edges step a pixel or two, the
-    way the film and fan art show Clawd rocking. A claw (`arms`, left and
+    `tilt` tips it that many degrees anticlockwise about the middle of its
+    underside (or `pivot`), claws, eyes and all, and the legs reach down to
+    the ground from wherever the body has got to: its edges step a pixel or
+    two, the way the film and fan art show Clawd rocking (see Lean). A claw (`arms`, left and
     right) is None, one of CLAW_DROP or a drop in units, "raised" (straight
     up the side past the top of the head, as the Code tab's Clawd holds its
     laptop aloft) or "reach" (thrown right up). `eyes` is a style of eye(),
@@ -305,25 +447,29 @@ def clawd(f, bottom=2.0, height=6.0, width=8.0, dx=0.0, lift=0.0, tilt=0.0, arms
     y0 = lift + bottom
     top = y0 + height
     wide = (width - 8) / 2
-    pivot = pivot or (dx + 4, y0)
-    body = rect_cells(dx - wide, y0, width, height, tilt, pivot)
-    fill(f, body, BODY)
-    if side:
-        fill(f, rect_cells(dx - wide, y0, 2, height, tilt, pivot), SHADE)
-    claws = []
+    rects = []
     for claw, x, w in ((None if side else arms[0], dx - 2 - wide, 2), (arms[1], dx + 8 + wide, 1.5 if side else 2)):
         if claw is None:
             continue
         if claw == "raised":
-            rect = (x, top - 1, w, 2.5)
+            rects.append((x, top - 1, w, 2.5))
         elif claw == "reach":
-            rect = (x + (0.5 if x < dx else 0), top - 1, 1.5, 3.5)
+            rects.append((x + (0.5 if x < dx else 0), top - 1, 1.5, 3.5))
         else:
-            rect = (x, top - CLAW_DROP.get(claw, claw), w, 2)
-        claws.append(rect_cells(*rect, tilt, pivot))
+            rects.append((x, top - CLAW_DROP.get(claw, claw), w, 2))
+    lean = Lean(tilt, dx - wide, y0, width, height, pivot or (dx + 4, y0), rects)
+    body = lean.body(rect_cells(dx - wide, y0, width, height))
+    fill(f, body, BODY)
+    if side:
+        fill(f, lean.cells(rect_cells(dx - wide, y0, 2, height)), SHADE)
+    claws, holds = [], []
+    for rect in rects:
+        ox, oy = lean.shift(rect_cells(*rect))
+        holds.append((rect, (ox, oy)))
+        claws.append({(cx + ox, cy + oy) for cx, cy in rect_cells(*rect)})
         fill(f, claws[-1], BODY)
         if side:
-            fill(f, rect_cells(rect[0], rect[1], 0.5, rect[3], tilt, pivot), SHADE)
+            fill(f, {(cx + ox, cy + oy) for cx, cy in rect_cells(rect[0], rect[1], 0.5, rect[3])}, SHADE)
     # Legs: planted where they stand, bent at the knee under a swayed body,
     # each half-column reaching up to the bottom of the body above it.
     columns = {}
@@ -345,15 +491,19 @@ def clawd(f, bottom=2.0, height=6.0, width=8.0, dx=0.0, lift=0.0, tilt=0.0, arms
     pair = eyes if isinstance(eyes, tuple) else (eyes, eyes)
     spots = ((dx + 3.5, top - 1.5), (dx + 7.5, top - 1.5)) if side else ((dx + 1.5, top - 1.5), (dx + 6.5, top - 1.5))
     for style, (cx, cy) in zip(pair, spots):
-        cx, cy = turn_point((cx + look[0], cy + look[1]), tilt, pivot)
-        eye(f, snap(cx - 0.5), snap(cy - 0.5), style, middle)
+        x, y = snap(cx + look[0] - 0.5), snap(cy + look[1] - 0.5)
+        ox, oy = lean.shift(rect_cells(x, y, 1, 1))
+        eye(f, x + ox, y + oy, style, middle)
     if blush and not side:
         for bx in (dx + 0.5, dx + 6.5):
-            cx, cy = turn_point((bx + 0.5, top - 2.75), tilt, pivot)
-            f.add(snap(cx - 0.5), snap(cy - 0.25), 1, 0.5, SALMON)
-    head = Head(top, tilt, pivot, middle)
-    # Where the claws were drawn, for props held in them to leave out.
+            x, y = snap(bx), snap(top - 3.0)
+            ox, oy = lean.shift(rect_cells(x, y, 1, 0.5))
+            f.add(x + ox, y + oy, 1, 0.5, SALMON)
+    head = Head(top, lean, middle)
+    # Where the claws were drawn, for props held in them to leave out, and
+    # how far each went, for props held in them to go too.
     head.claws = set().union(*claws)
+    head.holds = holds
     return head
 
 
@@ -396,21 +546,39 @@ def airpods_max(f, head, dx=0.0, out=0.0, lift=0.0):
     head and `lift` up: a gray cup on each side of the head, and the steel
     headband arching 1.5 units over it as a line of dots."""
     t = head.top + lift
+    moves = []
     for x, inner in ((dx - 1 - out, dx - 0.5 - out), (dx + 8 + out, dx + 8 + out)):
-        cushion = head.cells(inner, t - 2, 0.5, 2)
-        fill(f, head.cells(x, t - 2, 1, 2) - cushion, GRAY)
+        ox, oy = head.lean.shift(rect_cells(x, t - 2, 1, 2))
+        cushion = {(cx + ox, cy + oy) for cx, cy in rect_cells(inner, t - 2, 0.5, 2)}
+        fill(f, {(cx + ox, cy + oy) for cx, cy in rect_cells(x, t - 2, 1, 2)} - cushion, GRAY)
         fill(f, cushion, GRAY_DARK)
+        moves.append((ox, oy))
+    # The band keeps its curve as the head leans, carried with the higher
+    # cup, and reaches on down to the lower one.
+    ox, oy = moves[0][0], max(moves[0][1], moves[1][1])
     left, right = dx - 0.5 - out, dx + 8.5 + out
     mid, half = (left + right) / 2, (right - left) / 2
-    seen = set()
-    steps = max(8, round(math.pi * half * 2))
+    # Every cell the curve passes through, then thinned to a line one dot
+    # wide with no gaps: a cell is left out where the ones either side of
+    # it along the curve already touch.
+    path = []
+    steps = round(math.pi * half * 8)
     for k in range(steps + 1):
         s = math.pi * k / steps
-        x, y = head.at(mid - half * math.cos(s), t + 0.25 + 1.5 * math.sin(s))
+        x, y = mid - half * math.cos(s) + ox, t + 0.25 + 1.5 * math.sin(s) + oy
         spot = (math.floor(x * 2) / 2, math.floor(y * 2) / 2)
-        if spot not in seen:
-            seen.add(spot)
-            dot(f, *spot, GRAY)
+        if not path or path[-1] != spot:
+            path.append(spot)
+    line = []
+    for k, spot in enumerate(path):
+        if line and k + 1 < len(path) and max(abs(line[-1][0] - path[k + 1][0]), abs(line[-1][1] - path[k + 1][1])) <= 0.5:
+            continue
+        line.append(spot)
+    for spot in line:
+        dot(f, *spot, GRAY)
+    for end, (_, cup) in zip((left, right), moves):
+        for k in range(round((oy - cup) * 2)):
+            dot(f, math.floor((end + ox) * 2) / 2, t + cup + k * 0.5, GRAY)
 
 
 def note(f, age, cup, art):
@@ -664,11 +832,14 @@ def sunglasses(f, head, drop=0.0, tilt=None, glint=None, shift=0.0):
             for c, ch in enumerate(line):
                 if ch == "#" and c + r - glint in (0, 1):
                     light.add((x + c * 0.5, y + (len(SHADES) - 1 - r) * 0.5))
-    angle = head.tilt if tilt is None else tilt
-    pivot = head.pivot if tilt is None else (4 + shift, y + 1.0)
-    fill(f, turn_cells(frame - light, angle, pivot), INK)
-    fill(f, turn_cells(sprite_cells(SHADES, x, y, "l"), angle, pivot), INK_LIGHT)
-    fill(f, turn_cells(light, angle, pivot), CREAM)
+    if tilt is None:
+        turn = head.turn
+    else:
+        def turn(cells):
+            return turn_cells(cells, tilt, (4 + shift, y + 1.0))
+    fill(f, turn(frame - light), INK)
+    fill(f, turn(sprite_cells(SHADES, x, y, "l")), INK_LIGHT)
+    fill(f, turn(light), CREAM)
 
 
 def act_sunglasses():
@@ -778,7 +949,7 @@ def act_bubbles():
         head = clawd(f, side=True, arms=(None, claw), **body)
         if ring and claw is not None:
             # The wand's ring rests on top of the claw, in front of the face.
-            x, y = head.at(8.75, head.top - CLAW_DROP.get(claw, claw) + 2.75)
+            x, y = head.held(8.75, head.top - CLAW_DROP.get(claw, claw) + 2.75)
             f.sprite(WAND, snap(x - 0.75), snap(y - 0.75), {"#": SALMON})
         frames.append(f)
         return f, head
@@ -930,8 +1101,7 @@ def spiral_eyes(f, head, dx, turn):
     """Spinning spirals 2.5 units across where the eyes are."""
     art = rotate(SPIRAL_EYE, turn)
     for cx in (dx + 1.75, dx + 6.25):
-        x, y = head.at(cx, head.top - 1.75)
-        f.sprite(art, snap(x - 1.25), snap(y - 1.25), {"#": EYE})
+        fill(f, head.piece(sprite_cells(art, snap(cx - 1.25), snap(head.top - 3.0))), EYE)
 
 
 def star_halo(f, cx, cy, turn, spread=0.0):
@@ -1057,7 +1227,7 @@ def act_confetti():
         f = Frame()
         head = clawd(f, side=True, arms=(None, claw), **body)
         if popper and claw is not None:
-            x, y = head.at(9.0, head.top - CLAW_DROP.get(claw, claw) + 1.5)
+            x, y = head.held(9.0, head.top - CLAW_DROP.get(claw, claw) + 1.5)
             f.sprite(POPPER, snap(x - recoil), snap(y), {"s": SALMON, "c": CREAM})
         frames.append(f)
         return f, head
@@ -1182,11 +1352,35 @@ QUESTION = [".###.",
             "..#.."]
 
 
+def worn(f, head, art, x, y, palette, whole=""):
+    """Character art worn on Clawd's head (a hat), its bottom left at (x,
+    y) on the upright head, stepping column by column with the top of the
+    head as it leans so it stays snug on it; the details drawn in the
+    characters of `whole` move in one piece, over the hat's first colour
+    filling in where they were. `palette` maps characters to colours,
+    drawn in that order. Returns where it takes a cell of the upright art,
+    for more details on it."""
+    pieces = {}
+    for key in whole:
+        detail = sprite_cells(art, x, y, key)
+        pieces.update(dict.fromkeys(detail, head.lean.shift(detail)))
+
+    def place(cx, cy, whole=True):
+        ox, oy = (whole and pieces.get((cx, cy))) or head.lean.offset(cx, cy)
+        return cx + ox, cy + oy
+
+    for n, (keys, color) in enumerate(palette.items()):
+        here = {place(cx, cy) for cx, cy in sprite_cells(art, x, y, keys)}
+        if n == 0:
+            here |= {place(cx, cy, whole=False) for cx, cy in pieces} - {place(cx, cy) for cx, cy in pieces}
+        fill(f, here, color)
+    return place
+
+
 def top_hat(f, head, x=1.0, lift=0.0):
     """A top hat with a salmon band on Clawd's head, lit along its top and
-    left edge, turned with it."""
-    for key, color in (("#", INK), ("l", INK_LIGHT), ("s", SALMON)):
-        fill(f, turn_cells(sprite_cells(TOP_HAT, x, head.top + lift, key), head.tilt, head.pivot), color)
+    left edge, moving with it."""
+    worn(f, head, TOP_HAT, x, head.top + lift, {"#": INK, "l": INK_LIGHT, "s": SALMON})
 
 
 def act_detective():
@@ -1253,11 +1447,10 @@ WRENCH = ["#.#",
 
 
 def hard_hat(f, head, lift=0.0):
-    """An amber hard hat with a cream badge and a darker brim, turned with
+    """An amber hard hat with a cream badge and a darker brim, moving with
     the head."""
     x, y = -0.5, head.top + lift
-    for key, color in (("#", AMBER), ("d", AMBER_DARK), ("c", CREAM)):
-        fill(f, turn_cells(sprite_cells(HARD_HAT, x, y, key), head.tilt, head.pivot), color)
+    worn(f, head, HARD_HAT, x, y, {"#": AMBER, "d": AMBER_DARK, "c": CREAM}, whole="c")
 
 
 def act_hardhat():
@@ -1270,7 +1463,7 @@ def act_hardhat():
             hard_hat(f, head, lift=hat)
         if wrench is not None:
             # The wrench in the right claw, jaws up, raised or brought down.
-            x, y = head.at(10.0, head.top - 2.0 + wrench)
+            x, y = head.held(10.0, head.top - 2.0 + wrench)
             art = WRENCH if wrench >= 0 else rotate(WRENCH, 1)
             f.sprite(art, snap(x - 0.75), snap(y), {"#": GRAY})
             for k in range(sparks):
@@ -1588,8 +1781,7 @@ NIGHTCAP = [".........######.....",
 def nightcap(f, head, lift=0.0):
     """A salmon nightcap flopping over to the right, a cream band and pom-pom."""
     x, y = -0.5, head.top - 0.5 + lift
-    for key, color in (("#", SALMON), ("d", SALMON_DARK), ("cp", CREAM)):
-        fill(f, turn_cells(sprite_cells(NIGHTCAP, x, y, key), head.tilt, head.pivot), color)
+    worn(f, head, NIGHTCAP, x, y, {"#": SALMON, "d": SALMON_DARK, "cp": CREAM}, whole="p")
 
 
 def act_yawn():
@@ -1606,7 +1798,7 @@ def act_yawn():
         if tear:
             dot(f, snap(head.at(2.5, 0)[0]), head.top - 2.5, CREAM)
         for k in range(zees):
-            f.sprite(["###", ".#.", "###"], 9.0 + k * 1.0, head.top + 0.5 + k * 1.5, {"#": CREAM})
+            f.sprite(["###", ".#.", "###"], 9.0 + k * 1.0, head.top + 1.0 + k * 1.5, {"#": CREAM})
         frames.append(f)
         return f, head
 
@@ -1956,11 +2148,9 @@ PLUS = [".#.",
 def wizard_hat(f, head, lift=0.0):
     """A dark pointed hat, its tip bent over, specked with cream stars."""
     x, y = -0.5, head.top + lift
-    fill(f, turn_cells(sprite_cells(WIZARD_HAT, x, y, "#"), head.tilt, head.pivot), INK)
-    fill(f, turn_cells(sprite_cells(WIZARD_HAT, x, y, "l"), head.tilt, head.pivot), INK_LIGHT)
+    place = worn(f, head, WIZARD_HAT, x, y, {"#": INK, "l": INK_LIGHT})
     for sx, sy in WIZARD_STARS:
-        px, py = head.at(x + sx, y + sy)
-        dot(f, snap(px), snap(py), CREAM)
+        dot(f, *place(snap(x + sx), snap(y + sy)), CREAM)
 
 
 def act_wizard():
@@ -1973,10 +2163,10 @@ def act_wizard():
         if hat is not None:
             wizard_hat(f, head, hat)
         if wand is not None:
-            tx, ty = head.at(8.0 + wand[0], head.top + wand[1])
+            tx, ty = head.held(8.0 + wand[0], head.top + wand[1])
             tx, ty = snap(tx), snap(ty)
             # The wand from the claw up to its star.
-            cx, cy = head.at(9.0, head.top - 2.0)
+            cx, cy = head.held(9.0, head.top - 2.0)
             steps = 4
             for k in range(1, steps):
                 f.add(snap(cx + (tx - cx) * k / steps), snap(cy + (ty - cy) * k / steps), 0.5, 0.5, GRAY)
@@ -2039,14 +2229,13 @@ def guitar(f, head, strum=0.0):
     guard = sprite_cells(GUITAR_BODY, 4.5, 2.5, "c")
     neck = {(8.0 + k * 0.5, 4.5 + k * 0.5) for k in range(7)}
     peg = {(11.5, 8.0), (11.5, 8.5), (11.0, 8.0)}
-    fill(f, turn_cells(body, head.tilt, head.pivot), INK)
-    fill(f, turn_cells(lit, head.tilt, head.pivot), INK_LIGHT)
-    fill(f, turn_cells(guard, head.tilt, head.pivot), CREAM)
-    fill(f, turn_cells(neck, head.tilt, head.pivot), GRAY)
-    fill(f, turn_cells(peg, head.tilt, head.pivot), INK)
-    # The strumming claw over the strings.
-    claw = rect_cells(6.0, 3.5 + strum, 1.5, 1.5)
-    fill(f, turn_cells(claw, head.tilt, head.pivot), BODY)
+    fill(f, head.turn(body), INK)
+    fill(f, head.turn(lit), INK_LIGHT)
+    fill(f, head.turn(guard), CREAM)
+    fill(f, head.turn(neck), GRAY)
+    fill(f, head.turn(peg), INK)
+    # The strumming claw over the strings, in one piece.
+    fill(f, head.cells(6.0, 3.5 + strum, 1.5, 1.5), BODY)
 
 
 def act_guitar():
@@ -2114,7 +2303,7 @@ def act_kite():
     def pose(kx, ky, sway=0, **body):
         f = Frame()
         head = clawd(f, side=True, arms=(None, "raised"), eyes="up", **body)
-        hx, hy = head.at(9.0, head.top + 1.0)
+        hx, hy = head.held(9.0, head.top + 1.0)
         # The string sags a little from the claw up to the kite.
         for k in range(1, 12):
             t = k / 12
@@ -2157,7 +2346,7 @@ def act_sparkler():
     def pose(tip, sparks=10, trail=(), **body):
         f = Frame()
         head = clawd(f, side=True, arms=(None, "up"), **body)
-        cx, cy = head.at(9.0, head.top - 1.0)
+        cx, cy = head.held(9.0, head.top - 1.0)
         tx, ty = snap(cx + 1.5 + tip[0]), snap(cy + 2.5 + tip[1])
         # The stick from the claw to the burning tip.
         for k in range(1, 4):
